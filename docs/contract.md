@@ -12,6 +12,42 @@ significado de sus operaciones; no determina cómo se implementan el
 almacenamiento, la coordinación ni la replicación. Esos mecanismos se
 describen en [`architecture.md`](architecture.md).
 
+## Operaciones de la API
+
+El servicio público se divide en `Log`, `Groups` y `Admin`. Los errores de
+dominio se devuelven mediante el `ErrorCode` de la respuesta; los errores de
+transporte de gRPC quedan reservados para fallos del canal o del servidor.
+`Replication` es un servicio interno entre nodos y no forma parte de la API
+estable del cliente.
+
+| Operación | Servicio | Resultado visible | Reintento |
+|---|---|---|---|
+| `Produce` | `Log` | Offset base del lote aceptado y posición inicial del log. | Sí cuando se conserva la identidad y secuencia del productor; la respuesta perdida no implica rechazo. |
+| `Fetch` | `Log` | Registros desde el offset pedido, en orden y hasta el high watermark. Puede esperar hasta `max_wait_ms`. | Sí; no modifica el log. |
+| `ListOffsets` | `Log` | Offset earliest, latest o del primer registro con timestamp igual o posterior al solicitado. | Sí; no modifica el estado. |
+| `JoinGroup` | `Groups` | Identidad del miembro, generación y asignación vigente. | Sí; devuelve la generación vigente. |
+| `Heartbeat` | `Groups` | Aceptación del latido o error de miembro/generación. | Sí mientras el miembro y la generación sigan vigentes. |
+| `LeaveGroup` | `Groups` | Confirmación de salida del miembro. | Sí; repetir la salida no debe duplicar miembros. |
+| `CommitOffsets` | `Groups` | Confirmación de los siguientes offsets de lectura. | Sí; confirmar los mismos valores es idempotente. |
+| `FetchCommittedOffsets` | `Groups` | Último offset confirmado para cada partición solicitada. | Sí; no modifica el estado. |
+| `GetMetadata` | `Admin` | Líder, época, réplicas e ISR por partición. | Sí; es una consulta. |
+| `CreateTopic` | `Admin` | Metadatos del tema creado. `request_id` permite reconocer el reintento de la misma mutación. | Sí con el mismo `request_id`. |
+| `InitProducerId` | `Admin` | Identidad y época asignadas al productor. | Sí con el mismo `request_id`. |
+| `ResetGroupOffsets` | `Admin` | Confirmación de las nuevas posiciones de lectura solicitadas. | Sí con el mismo `request_id` y posiciones. |
+
+El servicio interno `Replication` contiene `ReplicaFetch`,
+`OffsetForLeaderEpoch`, `BrokerHeartbeat` y `AlterPartition`. Sus operaciones,
+mensajes y reglas pueden cambiar sin romper el contrato de cliente. Las
+peticiones de ese servicio requieren credenciales de nodo; no deben exponerse
+como operaciones de cliente.
+
+La identidad de productor (`producer_id`, época y secuencia) forma parte de
+`Produce`. La deduplicación persistente es una garantía de las fases nativas;
+el prototipo Ray de Fase 1 no la presupone y debe medir/documentar si un
+reintento produce duplicados. Del mismo modo, en Ray `acks=all` espera a las
+réplicas vivas del prototipo y no equivale aún a la garantía nativa basada en
+ISR, high watermark y fencing por época de líder.
+
 ## Modelo de datos y posiciones
 
 - Un tema contiene una o más particiones.
@@ -79,9 +115,11 @@ asigna como máximo a un miembro del grupo.
 
 Los cambios de membresía generan una nueva asignación y una nueva generación.
 La asignación se completa en menos de 15 s en la configuración de referencia.
-Las operaciones de commit asociadas a una generación obsoleta se rechazan. Un
-miembro que retoma el consumo puede solicitar la posición confirmada del grupo
-o una posición explícita para reprocesar registros.
+Un `JoinGroup` sin `member_id` solicita una identidad nueva; uno con identidad
+vigente solicita reincorporar ese miembro. Las operaciones de commit asociadas
+a una generación obsoleta se rechazan. Un miembro que retoma el consumo puede
+solicitar la posición confirmada del grupo o una posición explícita para
+reprocesar registros.
 
 El commit guarda la siguiente posición que se leerá, no modifica el log y no
 impide que el mismo grupo o un consumidor independiente vuelva a leer
@@ -89,20 +127,32 @@ posiciones anteriores.
 
 ## Errores y reintentos
 
-Los errores observables distinguen, como mínimo:
+La lista de códigos de dominio es cerrada y se define en
+`proto/bitacora/v1/bitacora.proto`:
 
-- petición o configuración inválida;
-- tema o partición inexistente;
-- credenciales ausentes o no válidas;
-- productor o miembro de grupo no autorizado;
-- generación obsoleta o conflicto de asignación;
-- falta de réplicas suficientes;
-- timeout o indisponibilidad del servicio.
+| Código | Significado | Política general |
+|---|---|---|
+| `ERROR_CODE_NONE` | Operación correcta. | No aplica. |
+| `ERROR_CODE_NOT_LEADER` | El nodo no es líder de la partición. | Reintentar tras refrescar metadatos. |
+| `ERROR_CODE_FENCED_LEADER_EPOCH` | La época del líder solicitante es obsoleta. | Refrescar metadatos antes de reintentar. |
+| `ERROR_CODE_NOT_ENOUGH_REPLICAS` | No se cumple el mínimo de réplicas sincronizadas. | Reintentable si el cliente conserva la identidad de escritura. |
+| `ERROR_CODE_OFFSET_OUT_OF_RANGE` | El offset solicitado no es válido o ya no está disponible. | No reintentar sin corregir la posición. |
+| `ERROR_CODE_OUT_OF_ORDER_SEQUENCE` | La secuencia del productor no es la esperada. | No reintentar sin reconciliar el estado del productor. |
+| `ERROR_CODE_DUPLICATE_SEQUENCE` | La secuencia ya fue aceptada. | Tratar como éxito con el offset original. |
+| `ERROR_CODE_ILLEGAL_GENERATION` | La generación del grupo ya no es vigente. | Reunirse al grupo y usar la generación nueva. |
+| `ERROR_CODE_UNKNOWN_MEMBER` | El miembro no pertenece al grupo. | Volver a unirse al grupo. |
+| `ERROR_CODE_REBALANCE_IN_PROGRESS` | El grupo está cambiando su asignación. | Reintentable después de completar el rebalanceo. |
+| `ERROR_CODE_CORRUPT_MESSAGE` | El lote no supera la validación de integridad. | No reintentar sin corregir el lote. |
+| `ERROR_CODE_NOT_CONTROLLER` | El nodo no es el controlador. | Refrescar metadatos y reintentar. |
+| `ERROR_CODE_REQUEST_TIMED_OUT` | La operación excedió su plazo; puede haber tenido efecto. | Reintentar con la misma identidad de petición/escritura. |
+| `ERROR_CODE_INVALID_REPLICATION_FACTOR` | El factor de replicación solicitado no es válido. | No reintentar sin corregir la petición. |
+| `ERROR_CODE_UNKNOWN_TOPIC_OR_PARTITION` | No existe el tema o la partición solicitada. | No reintentar sin corregir metadatos o nombre. |
+| `ERROR_CODE_GROUP_NOT_EMPTY` | No se puede aplicar la operación porque el grupo tiene miembros activos. | Reintentable después de vaciar el grupo. |
+| `ERROR_CODE_PERMISSION_DENIED` | El principal no tiene permiso para la operación. | No reintentar sin credenciales/rol autorizados. |
 
-Los errores temporales pueden permitir un reintento. Cuando una operación de
-escritura use identidad y secuencia, el reintento debe repetir ambas para
-evitar duplicados. Un cliente no debe interpretar un timeout como prueba de que
-una escritura fue rechazada.
+Los errores temporales pueden permitir un reintento. El cliente debe aplicar
+retroceso exponencial, jitter y un presupuesto de reintentos. Nunca debe
+interpretar un timeout como prueba de que una escritura fue rechazada.
 
 ## Administración y autenticación
 
@@ -112,6 +162,12 @@ operación según el rol antes de modificar estado o entregar datos. Los errores
 de autenticación y autorización no revelan el token ni información sensible.
 Las acciones administrativas quedan registradas para su auditoría. La gestión
 avanzada de identidades, TLS mutuo y ACL por tema no forman parte del alcance.
+
+El cliente presenta su token como metadato de autenticación en las llamadas
+gRPC. Un token ausente o inválido, o un rol insuficiente, produce
+`ERROR_CODE_PERMISSION_DENIED` antes de ejecutar la operación. Esta capacidad
+se implementa en BIT-86 de la fase nativa; el prototipo inicial no debe
+presentar como demostrada una garantía de autenticación que aún no implementa.
 
 `producer` puede publicar; `consumer` puede leer y operar con grupos;
 `admin` puede consultar y modificar la configuración de temas y particiones;

@@ -62,10 +62,10 @@ sustituye la replicación del log de datos.
 | Coordinador de grupos | Gestionar membresía, generaciones, asignaciones y offsets confirmados. |
 | Cliente | Ofrecer una interfaz para publicar, leer y operar con grupos conforme al contrato. |
 
-La estructura de paquetes debe seguir estas responsabilidades y mantener
-pequeñas las interfaces entre componentes. No se crea un paquete separado por
-cada concepto si no existe una frontera de estado o una historia que lo
-justifique. El scaffold actual organiza esos componentes así:
+La estructura de paquetes mantiene estas responsabilidades y evita interfaces
+innecesarias. No se crea un paquete separado por cada concepto si no existe
+una frontera de estado o una historia que lo justifique. La organización actual
+es:
 
 ```text
 cmd/bitacorad/         Ejecutable del servidor

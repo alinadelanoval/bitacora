@@ -7,9 +7,16 @@ name = "bitacora-ray-prototype"
 version = "0.1.0"
 description = "Fase 1 Ray prototype for the Bitacora P13 project"
 requires-python = ">=3.11"
+dependencies = [
+    "ray==2.59.0",
+    "grpcio==1.84.1",
+]
 
-# Add Ray, gRPC, code-generation and test dependencies in BIT-02 after
-# agreeing and validating versions on both development machines.
+[project.optional-dependencies]
+dev = [
+    "grpcio-tools==1.84.1",
+    "pytest==9.1.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["prototype/tests"]

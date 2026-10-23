@@ -1,15 +1,5 @@
-project: Bitacora
-course: Sistemas Distribuidos 2026 - P13
-policy: "Documentar el uso de IA y verificar toda contribución antes de aceptarla."
-uses:
-  - date: 2026-10-23
-    assistant: "Copilot SDK in VS Code"
-    scope:
-      - "Repositorio inicial y estructura de directorios"
-      - "Borradores de documentación de requisitos, contrato y flujo de trabajo"
-      - "Plantillas iniciales de Issues, PR y experimentos"
-    human_review: pending
-    verification: "El equipo debe revisar el alcance, las decisiones y los archivos generados antes de aceptarlos."
-human_review:
-  required: true
-  responsibility: "El equipo es responsable del código, las pruebas, las decisiones y la defensa."
+ai_use:
+  used: true
+  tools: []
+  activities: []
+  verification: []

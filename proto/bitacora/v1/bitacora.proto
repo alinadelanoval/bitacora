@@ -2,6 +2,299 @@ syntax = "proto3";
 
 package bitacora.v1;
 
-// Public API schema placeholder.
-// Define services, messages, error codes, and Go package options in BIT-10
-// after the observable contract has been reviewed by the team.
+option go_package = "github.com/alinadelanoval/bitacora/gen/go/bitacora/v1;bitacorav1";
+
+service Log {
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+  rpc Fetch(FetchRequest) returns (FetchResponse);
+  rpc ListOffsets(ListOffsetsRequest) returns (ListOffsetsResponse);
+}
+
+service Groups {
+  rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc LeaveGroup(LeaveGroupRequest) returns (LeaveGroupResponse);
+  rpc CommitOffsets(CommitOffsetsRequest) returns (CommitOffsetsResponse);
+  rpc FetchCommittedOffsets(FetchCommittedOffsetsRequest) returns (FetchCommittedOffsetsResponse);
+}
+
+service Admin {
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
+  rpc InitProducerId(InitProducerIdRequest) returns (InitProducerIdResponse);
+  rpc ResetGroupOffsets(ResetGroupOffsetsRequest) returns (ResetGroupOffsetsResponse);
+}
+
+service Replication {
+  rpc ReplicaFetch(stream ReplicaFetchRequest) returns (stream ReplicaFetchResponse);
+  rpc OffsetForLeaderEpoch(OffsetForLeaderEpochRequest) returns (OffsetForLeaderEpochResponse);
+  rpc BrokerHeartbeat(BrokerHeartbeatRequest) returns (BrokerHeartbeatResponse);
+  rpc AlterPartition(AlterPartitionRequest) returns (AlterPartitionResponse);
+}
+
+enum ErrorCode {
+  ERROR_CODE_NONE = 0;
+  ERROR_CODE_NOT_LEADER = 1;
+  ERROR_CODE_FENCED_LEADER_EPOCH = 2;
+  ERROR_CODE_NOT_ENOUGH_REPLICAS = 3;
+  ERROR_CODE_OFFSET_OUT_OF_RANGE = 4;
+  ERROR_CODE_OUT_OF_ORDER_SEQUENCE = 5;
+  ERROR_CODE_DUPLICATE_SEQUENCE = 6;
+  ERROR_CODE_ILLEGAL_GENERATION = 7;
+  ERROR_CODE_UNKNOWN_MEMBER = 8;
+  ERROR_CODE_REBALANCE_IN_PROGRESS = 9;
+  ERROR_CODE_CORRUPT_MESSAGE = 10;
+  ERROR_CODE_NOT_CONTROLLER = 11;
+  ERROR_CODE_REQUEST_TIMED_OUT = 12;
+  ERROR_CODE_INVALID_REPLICATION_FACTOR = 13;
+  ERROR_CODE_UNKNOWN_TOPIC_OR_PARTITION = 14;
+  ERROR_CODE_GROUP_NOT_EMPTY = 15;
+  ERROR_CODE_PERMISSION_DENIED = 16;
+}
+
+enum Acks {
+  ACKS_UNSPECIFIED = 0;
+  ACKS_NONE = 1;
+  ACKS_LEADER = 2;
+  ACKS_ALL = 3;
+}
+
+enum OffsetPosition {
+  OFFSET_POSITION_UNSPECIFIED = 0;
+  OFFSET_POSITION_EARLIEST = 1;
+  OFFSET_POSITION_LATEST = 2;
+  OFFSET_POSITION_TIMESTAMP = 3;
+}
+
+message Record {
+  bytes key = 1;
+  bytes value = 2;
+  int64 timestamp_unix_ms = 3;
+}
+
+message TopicPartition {
+  string topic = 1;
+  int32 partition = 2;
+}
+
+message PartitionMetadata {
+  int32 partition = 1;
+  string leader_id = 2;
+  int32 leader_epoch = 3;
+  repeated string replica_ids = 4;
+  repeated string isr_ids = 5;
+}
+
+message TopicMetadata {
+  string topic = 1;
+  repeated PartitionMetadata partitions = 2;
+}
+
+message ProduceRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int32 leader_epoch = 3;
+  Acks acks = 4;
+  int32 timeout_ms = 5;
+  int64 producer_id = 6;
+  int32 producer_epoch = 7;
+  int32 base_sequence = 8;
+  repeated Record records = 9;
+}
+
+message ProduceResponse {
+  ErrorCode error = 1;
+  int64 base_offset = 2;
+  int64 log_start_offset = 3;
+}
+
+message FetchRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  int32 max_bytes = 4;
+  int32 max_wait_ms = 5;
+}
+
+message OffsetRecord {
+  int64 offset = 1;
+  Record record = 2;
+}
+
+message FetchResponse {
+  ErrorCode error = 1;
+  repeated OffsetRecord records = 2;
+  int64 high_watermark = 3;
+  int64 log_start_offset = 4;
+}
+
+message ListOffsetsRequest {
+  TopicPartition topic_partition = 1;
+  OffsetPosition position = 2;
+  int64 timestamp_unix_ms = 3;
+}
+
+message ListOffsetsResponse {
+  ErrorCode error = 1;
+  int64 offset = 2;
+}
+
+message JoinGroupRequest {
+  string group_id = 1;
+  string member_id = 2;
+  repeated string topics = 3;
+  int32 session_timeout_ms = 4;
+}
+
+message Assignment {
+  repeated TopicPartition partitions = 1;
+}
+
+message JoinGroupResponse {
+  ErrorCode error = 1;
+  string member_id = 2;
+  int32 generation = 3;
+  Assignment assignment = 4;
+}
+
+message HeartbeatRequest {
+  string group_id = 1;
+  string member_id = 2;
+  int32 generation = 3;
+}
+
+message HeartbeatResponse {
+  ErrorCode error = 1;
+}
+
+message LeaveGroupRequest {
+  string group_id = 1;
+  string member_id = 2;
+  int32 generation = 3;
+}
+
+message LeaveGroupResponse {
+  ErrorCode error = 1;
+}
+
+message OffsetCommit {
+  TopicPartition topic_partition = 1;
+  int64 next_offset = 2;
+}
+
+message CommitOffsetsRequest {
+  string group_id = 1;
+  string member_id = 2;
+  int32 generation = 3;
+  repeated OffsetCommit offsets = 4;
+}
+
+message CommitOffsetsResponse {
+  ErrorCode error = 1;
+}
+
+message FetchCommittedOffsetsRequest {
+  string group_id = 1;
+  repeated TopicPartition topic_partitions = 2;
+}
+
+message CommittedOffset {
+  TopicPartition topic_partition = 1;
+  int64 next_offset = 2;
+}
+
+message FetchCommittedOffsetsResponse {
+  ErrorCode error = 1;
+  repeated CommittedOffset offsets = 2;
+}
+
+message GetMetadataRequest {
+  repeated string topics = 1;
+}
+
+message GetMetadataResponse {
+  ErrorCode error = 1;
+  repeated TopicMetadata topics = 2;
+}
+
+message CreateTopicRequest {
+  string request_id = 1;
+  string topic = 2;
+  int32 partitions = 3;
+  int32 replication_factor = 4;
+}
+
+message CreateTopicResponse {
+  ErrorCode error = 1;
+  TopicMetadata metadata = 2;
+}
+
+message InitProducerIdRequest {
+  string request_id = 1;
+}
+
+message InitProducerIdResponse {
+  ErrorCode error = 1;
+  int64 producer_id = 2;
+  int32 producer_epoch = 3;
+}
+
+message ResetGroupOffsetsRequest {
+  string request_id = 1;
+  string group_id = 2;
+  repeated OffsetCommit offsets = 3;
+}
+
+message ResetGroupOffsetsResponse {
+  ErrorCode error = 1;
+}
+
+message ReplicaFetchRequest {
+  string topic = 1;
+  int32 partition = 2;
+  string follower_id = 3;
+  int32 leader_epoch = 4;
+  int64 fetch_offset = 5;
+  int32 max_bytes = 6;
+}
+
+message ReplicaFetchResponse {
+  ErrorCode error = 1;
+  repeated OffsetRecord records = 2;
+  int64 high_watermark = 3;
+  int32 leader_epoch = 4;
+}
+
+message OffsetForLeaderEpochRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int32 leader_epoch = 3;
+}
+
+message OffsetForLeaderEpochResponse {
+  ErrorCode error = 1;
+  int32 leader_epoch = 2;
+  int64 end_offset = 3;
+}
+
+message BrokerHeartbeatRequest {
+  string broker_id = 1;
+  int64 timestamp_unix_ms = 2;
+}
+
+message BrokerHeartbeatResponse {
+  ErrorCode error = 1;
+}
+
+message AlterPartitionRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int32 partition_epoch = 3;
+  repeated string isr_ids = 4;
+  string leader_id = 5;
+}
+
+message AlterPartitionResponse {
+  ErrorCode error = 1;
+  int32 partition_epoch = 2;
+}

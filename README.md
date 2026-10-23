@@ -11,6 +11,38 @@ compatibilidad con el protocolo de Apache Kafka. Las garantías concretas se
 consideran acordadas solo cuando están documentadas en el contrato y cubiertas
 por pruebas.
 
+## Entorno local
+
+El entorno de referencia es Linux, con Go 1.26.x para las fases nativas y
+Python 3.11 o superior para el prototipo Ray. La CI fija Go 1.26.10 y Python
+3.11; utilizad esas mismas versiones para reproducir sus resultados. También
+se necesitan GNU Make y Buf 1.75.0 para los comandos del proyecto.
+
+Desde la raíz del repositorio, instalad las dependencias Python fijadas:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --require-hashes -r requirements.lock
+```
+
+Los comandos comunes están en el `Makefile`:
+
+```sh
+make verify      # compilación, vet, pruebas Go con race y pytest
+make proto       # validar y generar los stubs desde proto/bitacora/v1
+make cluster     # arrancar tres procesos locales de prueba
+make stop        # detener solo los procesos iniciados por make cluster
+```
+
+Instalad Buf 1.75.0 con `make buf-install` y añadid `$(go env GOPATH)/bin` al
+`PATH` antes de ejecutar `make proto`.
+
+El comando de clúster inicia tres procesos locales de prueba. Estos todavía no
+exponen la API ni implementan el servicio Bitácora. El arranque de esos procesos
+y la generación de código requieren Linux; el código Go también puede
+compilarse en Windows y macOS.
+
 ## Fases y entregas
 
 | Fase | Peso | Resultado esperado | Hito del plan |
@@ -44,9 +76,9 @@ experiments/                Fichas y ejecuciones por fase
 evidence/                   Resultados seleccionados y reproducibles
 ```
 
-Los README dentro de directorios de implementación son marcadores de alcance,
-no código funcional. Crear módulos y paquetes de Go/Python cuando comiencen las
-historias correspondientes y sus interfaces estén acordadas.
+Los directorios de implementación incluyen README que describen la
+responsabilidad de cada componente. El código se añadirá conforme avancen las
+historias y queden definidas sus interfaces.
 
 ## Documentos clave
 
@@ -78,11 +110,8 @@ una ficha en `experiments/` y evidencia reproducible en `evidence/`.
 
 ## Scaffold del repositorio
 
-Las carpetas de implementación delimitan las responsabilidades previstas; sus
-README describen el alcance de cada componente hasta que se implemente. Los
-detalles de API y comportamiento deben mantenerse alineados entre requisitos,
-contrato, pruebas y código.
-
-El módulo Go utiliza actualmente `example.com/bitacora`; debe reemplazarse por
-la ruta del repositorio antes de publicar o importar el módulo desde otros
-proyectos.
+Los directorios internos separan las responsabilidades de almacenamiento,
+replicación, metadatos, grupos, autenticación y servidor. Sus README describen
+la función prevista de cada componente; su implementación avanzará junto con
+las historias correspondientes. La API y su comportamiento deben mantenerse
+alineados con los requisitos, el contrato y las pruebas.
