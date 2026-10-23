@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bitacora-ray-prototype"
+version = "0.1.0"
+description = "Fase 1 Ray prototype for the Bitacora P13 project"
+requires-python = ">=3.11"
+
+# Add Ray, gRPC, code-generation and test dependencies in BIT-02 after
+# agreeing and validating versions on both development machines.
+
+[tool.pytest.ini_options]
+testpaths = ["prototype/tests"]

@@ -1,0 +1,46 @@
+name: Historia / tarea
+description: Trabajo verificable relacionado con un requisito o una entrega.
+title: "[Fase X] "
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objetivo y motivo
+      description: Qué capacidad se busca y por qué.
+    validations:
+      required: true
+  - type: input
+    id: requirements
+    attributes:
+      label: Requisitos relacionados
+      description: IDs RF-* (funcionales), RNF-* (calidad) o I-* (invariantes) de docs/requirements.md
+      placeholder: RF-01, RNF-02, I-03
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Comportamiento observable esperado
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Criterios de aceptación y pruebas
+      description: Especifica resultados verificables, incluidos fallos si aplican.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencias y decisiones
+      description: Issues, contrato o ADR relacionados; indica lo que esté bloqueado.
+  - type: input
+    id: owner
+    attributes:
+      label: Conductora / revisora
+      placeholder: Persona A / Persona B
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencia y documentación al terminar

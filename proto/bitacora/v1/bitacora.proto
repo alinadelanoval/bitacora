@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package bitacora.v1;
+
+// Public API schema placeholder.
+// Define services, messages, error codes, and Go package options in BIT-10
+// after the observable contract has been reviewed by the team.

@@ -1,0 +1,27 @@
+# Go
+/bin/
+/dist/
+*.test
+coverage.out
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local runtime data and experiment output
+/data/
+/evidence/local/
+*.log
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated code (keep source schemas in proto/)
+/gen/

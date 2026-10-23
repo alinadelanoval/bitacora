@@ -1,0 +1,27 @@
+name: Bug
+description: Comportamiento observado que contradice el contrato o un criterio acordado.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Resultado observado
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Resultado esperado y referencia
+      description: Enlaza la regla del contrato, requisito o criterio de aceptación.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Pasos y configuración para reproducir
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, pruebas o evidencia
