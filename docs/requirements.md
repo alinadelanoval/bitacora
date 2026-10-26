@@ -59,20 +59,43 @@ detallan en [`contract.md`](contract.md).
 | RF-10 | Autenticar y autorizar clientes. | Las operaciones requieren un token válido asociado a un principal y a un rol (`producer`, `consumer`, `admin` o `node`). Las credenciales inválidas o un rol insuficiente se rechazan sin ejecutar la operación solicitada. | BIT-86 |
 | RF-11 | Exponer errores accionables. | Los errores distinguen, como mínimo, entradas inválidas, recursos inexistentes, falta de autorización, conflictos de generación, indisponibilidad y timeouts. | BIT-10, BIT-16, BIT-70 |
 
-## Invariantes
+## Invariantes del problema
 
-Estas propiedades deben conservarse durante las operaciones normales, la
-recuperación y los escenarios de fallo definidos para el proyecto.
+Propiedades de *safety* que el sistema debe conservar durante la operación
+normal, la recuperación y los escenarios de fallo. Se formulan sin referirse a
+un mecanismo concreto: valen para el prototipo Ray y para la versión Go, y se
+comprueban con las mismas herramientas (`tools/checker/`). Las propiedades que
+dependen de una decisión de diseño se recogen en
+[`architecture.md`](architecture.md#propiedades-de-arquitectura) y se exigen
+cuando el ADR correspondiente se acepta.
 
-| ID | Invariante | Verificación |
-|---|---|---|
-| I-01 | Los offsets de una partición son únicos, contiguos, crecientes y no se reutilizan para registros aceptados. | Publicación concurrente, reinicio y cambio de líder. |
-| I-02 | Los registros aceptados son inmutables y se entregan en el orden de su partición. | Comparación del log antes y después de lecturas y fallos. |
-| I-03 | Los consumidores solo leen registros hasta el límite de visibilidad publicado por la réplica líder. | Lecturas con réplicas retrasadas y durante cambios de líder. |
-| I-04 | Una partición no se asigna a dos miembros activos del mismo grupo y generación. | Rebalanceo, salida de miembros y operaciones con generaciones antiguas. |
-| I-05 | Un nodo que haya perdido el liderazgo no puede confirmar escrituras ni avanzar el límite de visibilidad. | Aislamiento del líder anterior y recuperación del clúster. |
-| I-06 | Un registro incompleto o corrupto no se expone como válido. | Interrupción de escritura, truncamiento y recuperación del almacenamiento. |
-| I-07 | La deduplicación de un productor se conserva durante el periodo de validez de su identidad y secuencia. | Reintento con respuesta perdida y recuperación del estado del productor. |
+Los tiempos de conmutación, reequilibrio y los objetivos de rendimiento no son
+invariantes: se tratan como objetivos de calidad (RNF) y se miden.
+
+| ID | Nombre | Propiedad | Condiciones y fuera de alcance | Requisitos | Escenarios |
+|---|---|---|---|---|---|
+| I-01 | Append-only | Un registro aceptado no se modifica ni se elimina. Confirmar o mover una posición de lectura no altera el log. | La retención automática está fuera de alcance. | RF-02, RF-08 | F0, F2, F15 |
+| I-02 | Orden por partición | Cada partición tiene un único orden total: offsets únicos y crecientes; todos los consumidores observan la misma secuencia; el offset devuelto por `Produce` es aquel en el que se lee ese registro. No se promete orden entre particiones. | La contigüidad de offsets es regla del [contrato](contract.md). | RF-02, RF-03 | F0, F2, F15 |
+| I-03 | Durabilidad declarada | Toda operación que el sistema reconoce como durable sobrevive a los fallos del modelo declarado: aparece en la lectura final con su offset y valor. | Se declara por nivel de confirmación (`acks`). Modelo: caída de proceso y partición de red. Fuera de alcance: pérdida simultánea de la caché de varios nodos y fallos bizantinos. | RF-04, RF-05, RNF-01 | F1, F2, F5, F7, F15 |
+| I-04 | Historia única bajo fallo y partición | No existen dos historias reconocidas distintas para una partición: ninguna escritura reconocida es contradicha por otra en el mismo offset, ni durante un cambio de líder ni durante una partición. El lado que no puede garantizarlo deja de confirmar. | Compromiso declarado: ante una partición se rechaza antes que confirmar. | RF-05, RNF-04 | F5, F7, F15 |
+| I-05 | Integridad | Un registro incompleto o corrupto no se entrega como válido; la recuperación no pierde registros reconocidos ni inventa registros. | Fuera de alcance: corrupción del medio no detectable. | RF-04 | F2 |
+| I-06 | Posición de consumo declarada y observable | La posición confirmada de un grupo es consultable y, tras reiniciar un consumidor, la lectura continúa desde ella. Una posición inválida se comunica; no se sustituye en silencio por otra. | Reiniciar posiciones es una operación explícita (`ResetGroupOffsets`). | RF-06, RF-08 | P1, P3, P4 |
+| I-07 | Propiedad de consumo | En cada instante, cada partición de un grupo tiene como máximo un propietario de consumo; un miembro que ya no lo es no puede avanzar el progreso del grupo. | Siempre. | RF-07 | P2, F18 |
+| I-08 | Reintento seguro | Reintentar con la misma identidad una operación declarada reintentable no produce un segundo efecto. Un timeout no se interpreta como rechazo: el resultado es indeterminado. | Operaciones reintentables y ventana de validez de la identidad, según el contrato. | RF-09, RF-01 | F8, F9, F21 |
+| I-09 | Autorización sin efecto | Una operación sin permiso se rechaza sin modificar el estado protegido y deja un evento de auditoría sin secretos; repetir una mutación autenticada no duplica su efecto. | Alcance según el modelo de confianza. | RF-10, RNF-08 | F20, F21 |
+
+Los escenarios `F*` son los del catálogo común de fallos y cargas. Los `P*` son
+escenarios específicos del tema: `P1` reinicio de un consumidor, `P2` consumidor
+pausado, `P3` reinicio completo del clúster, `P4` reprocesamiento explícito.
+
+Estado de cada invariante respecto a su verificación:
+
+| Propiedad | Evaluable con el historial del cliente | Fase 1 (Ray) | Fase 2 (Go) |
+|---|---|---|---|
+| I-01, I-02, I-03, I-08 | Sí | Se mide en `EXP-001…003` | Pendiente |
+| I-04, I-07, I-09 | Parcial (requiere logs de nodos) | Se mide en `EXP-002` | Pendiente |
+| I-06 | Parcial (consulta de posiciones tras reiniciar) | Pendiente | Pendiente |
+| I-05 | No (prueba del almacenamiento) | No aplica a la Fase 1 | Pendiente |
 
 ## Requisitos de calidad
 

@@ -1,4 +1,5 @@
-# Evidencia — Fase 2 (Go nativo)
+# Evidencia — Fase 2 (versión nativa)
 
-Guardar evidencia de recuperación, conformidad e integración nativa. Evitar
-volcados o datos locales que no deban versionarse.
+Experimentos que respaldan las decisiones y las propiedades de arquitectura de la versión Go.
+
+Estructura y reglas: [`evidence/README.md`](../README.md).

@@ -12,6 +12,41 @@ significado de sus operaciones; no determina cómo se implementan el
 almacenamiento, la coordinación ni la replicación. Esos mecanismos se
 describen en [`architecture.md`](architecture.md).
 
+## Estado y versión del contrato
+
+- **Versión:** borrador `0.x`. Se congela en la puerta de salida de la Fase 1
+  ([`phase-1-ray/exit-gate.md`](phase-1-ray/exit-gate.md)); después solo cambia
+  mediante un ADR que explique el motivo, el efecto en los clientes y las
+  pruebas.
+- **Congelado en:** _por completar (commit / etiqueta)_.
+
+Estado de cada operación respecto a la conformidad. Se actualiza al avanzar el
+prototipo y la suite de `contracttest/`; «pendiente» no significa que la regla
+sea opcional, sino que todavía no se ha comprobado.
+
+| Operación | Prototipo Ray | Servidor Go | Caso en `contracttest/` |
+|---|---|---|---|
+| `Produce` | pendiente | pendiente | pendiente |
+| `Fetch` | pendiente | pendiente | pendiente |
+| `ListOffsets` | pendiente | pendiente | pendiente |
+| `JoinGroup`, `Heartbeat`, `LeaveGroup` | pendiente | pendiente | pendiente |
+| `CommitOffsets`, `FetchCommittedOffsets` | pendiente | pendiente | pendiente |
+| `GetMetadata`, `CreateTopic` | pendiente | pendiente | pendiente |
+| `InitProducerId` | no aplica en Fase 1 (idempotencia nativa) | pendiente | pendiente |
+| `ResetGroupOffsets` | pendiente | pendiente | pendiente |
+
+### Cuestiones abiertas
+
+Reglas que todavía no están cerradas y que deben decidirse (o marcarse como
+observadas) antes de congelar. No convertirlas en aserciones de prueba hasta
+entonces.
+
+- Offset solicitado que ya no está disponible: el texto admite «error o
+  posición válida definida por la API». Decidir cuál de las dos.
+- Alcance de `acks=all` en el prototipo Ray (réplicas vivas) frente a la
+  garantía nativa (ISR y límite de visibilidad): documentar la diferencia
+  observada.
+
 ## Operaciones de la API
 
 El servicio público se divide en `Log`, `Groups` y `Admin`. Los errores de
@@ -124,6 +159,26 @@ reprocesar registros.
 El commit guarda la siguiente posición que se leerá, no modifica el log y no
 impide que el mismo grupo o un consumidor independiente vuelva a leer
 posiciones anteriores.
+
+## Resultado indeterminado
+
+Una operación de escritura puede terminar de tres formas observables: **correcta**
+(se conoce su offset), **fallida** (se sabe que no tuvo efecto, por ejemplo por
+un error de validación) o **indeterminada** (timeout, conexión interrumpida o
+respuesta perdida). En el último caso el cliente no puede deducir si la
+escritura tuvo efecto.
+
+- Una escritura indeterminada **no** genera la obligación de durabilidad de
+  [I-03](requirements.md#invariantes-del-problema): puede aparecer en el log o no.
+- El reintento debe conservar la identidad y la secuencia originales. Con una
+  identidad vigente, la escritura aparece **a lo sumo una vez** (I-08).
+- Sin identidad (por ejemplo, el prototipo Ray de la Fase 1), un reintento puede
+  producir un duplicado; el comportamiento observado se documenta en
+  [`phase-1-ray/dependencies.md`](phase-1-ray/dependencies.md).
+
+Las propiedades que el sistema debe conservar se recogen en
+[`requirements.md`](requirements.md#invariantes-del-problema); este contrato no
+las duplica.
 
 ## Errores y reintentos
 

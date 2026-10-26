@@ -66,14 +66,11 @@ internal/{record,storage,
   group,auth,server}/        Componentes internos Go
 pkg/client/                 Cliente Go
 contracttest/               Contrato común contra Ray y Go
-tests/{functional,
-  integration,distributed,
-  faults,workload}/          Pruebas del sistema
-tools/{checker,loadgen}/      Herramientas de verificación/carga
+tests/{integration,faults}/  Pruebas de sistema con procesos reales
+tools/{checker,loadgen}/      Verificación de propiedades y generación de carga
 scripts/                    Automatización local
-docs/                       Requisitos, contrato, arquitectura y proceso
-experiments/                Fichas y ejecuciones por fase
-evidence/                   Resultados seleccionados y reproducibles
+docs/                       Requisitos, contrato, arquitectura, Fase 1 y decisiones
+evidence/                   Un directorio por experimento: registro y datos
 ```
 
 Los directorios de implementación incluyen README que describen la
@@ -84,17 +81,19 @@ historias y queden definidas sus interfaces.
 
 - [Requisitos y trazabilidad](docs/requirements.md)
 - [Contrato observable](docs/contract.md)
-- [Arquitectura, middleware y protocolo interno](docs/architecture.md)
+- [Arquitectura nativa y protocolo interno](docs/architecture.md)
+- [Fase 1: diagrama y mapa de dependencias de Ray](docs/phase-1-ray/dependencies.md)
+- [Fase 1: puerta de salida](docs/phase-1-ray/exit-gate.md)
+- [Registro de decisiones y ADR](docs/decisions/README.md)
 - [Plantilla de experimento](docs/experiments/TEMPLATE.md)
-- [Decisiones de arquitectura (ADR)](docs/decisions/README.md)
-- [Experimentos](experiments/README.md)
-- [Evidencia](evidence/README.md)
+- [Evidencia de experimentos](evidence/README.md)
+- [Checker: propiedades y anomalías](tools/checker/README.md)
 - [Uso de IA](AI_USE.yaml)
 
 ## Ciclo de trabajo
 
 ```text
-Requisito → regla o decisión → Issue → prueba → PR revisado → evidencia
+Requisito → propiedad (I-xx) → decisión (ADR) → Issue → prueba → PR revisado → experimento
 ```
 
 No es necesario cerrar todo el diseño ni crear el backlog completo antes de
@@ -106,7 +105,8 @@ existentes en lugar de crear un segundo backlog.
 Cada PR debe enlazar el Issue y los requisitos relacionados, mostrar las
 pruebas ejecutadas y recibir revisión cruzada. Actualizad contrato o ADR si
 cambia una regla acordada. Si el cambio investiga un fallo o una carga, guardad
-una ficha en `experiments/` y evidencia reproducible en `evidence/`.
+un experimento en `evidence/<fase>/EXP-NNN-…/`, con la predicción escrita antes
+de ejecutar.
 
 ## Scaffold del repositorio
 

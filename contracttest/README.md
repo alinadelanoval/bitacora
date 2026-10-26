@@ -1,7 +1,13 @@
 # Pruebas de conformidad del contrato
 
-La suite de conformidad debe ejecutarse sin cambiar sus expectativas contra el
-gateway Ray y el servidor Go. Configurar el endpoint mediante
-`BITACORA_ENDPOINTS` o el mecanismo acordado. Cada caso debe corresponder a una
-regla aceptada en `docs/contract.md`; no convertir preguntas abiertas en
-aserciones hasta que el equipo decida su semántica.
+Suite única que comprueba el contrato observable
+([`docs/contract.md`](../docs/contract.md)) contra un endpoint gRPC. Se ejecuta
+sin cambiar sus expectativas contra el gateway Ray y contra el servidor Go.
+
+- El endpoint se configura con `BITACORA_ENDPOINTS` o el mecanismo acordado.
+- Cada caso corresponde a una regla aceptada del contrato; no se convierten
+  preguntas abiertas en aserciones hasta decidir su semántica.
+- Una diferencia entre implementaciones se corrige o se registra con su alcance
+  y justificación. No se relaja una prueba para ocultarla.
+- Los casos de operaciones de usuario sobre un endpoint viven aquí, no en
+  `tests/`.

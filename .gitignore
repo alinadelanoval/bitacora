@@ -16,6 +16,8 @@ venv/
 /data/
 /evidence/local/
 *.log
+# Los logs de evidencia reproducible sí se versionan
+!/evidence/**/*.log
 
 # Editors and operating systems
 .vscode/
