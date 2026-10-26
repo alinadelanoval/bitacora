@@ -1,4 +1,5 @@
-# Evidencia — Fase 3 (comparación)
+# Evidencia — Fase 3 (verificación y comparación)
 
-Guardar resultados seleccionados de la campaña y comparación final. Cada
-resultado debe apuntar a instrucciones que permitan reproducirlo.
+Campaña de fallos y carga, y comparación entre el prototipo Ray y la versión Go con las mismas herramientas.
+
+Estructura y reglas: [`evidence/README.md`](../README.md).

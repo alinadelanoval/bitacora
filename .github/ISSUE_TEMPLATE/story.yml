@@ -13,7 +13,7 @@ body:
     id: requirements
     attributes:
       label: Requisitos relacionados
-      description: IDs RF-* (funcionales), RNF-* (calidad) o I-* (invariantes) de docs/requirements.md
+      description: IDs RF-* (funcionales), RNF-* (calidad) e I-* (invariantes del problema) de docs/requirements.md, y AI-* (propiedades de arquitectura) de docs/architecture.md
       placeholder: RF-01, RNF-02, I-03
     validations:
       required: true

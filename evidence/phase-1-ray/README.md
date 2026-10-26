@@ -1,4 +1,5 @@
 # Evidencia — Fase 1 (Ray)
 
-Guardar salidas seleccionadas y reproducibles del experimento R0. Enlazar cada
-artefacto a su ficha en `experiments/phase-1-ray/`.
+Experimento inicial de middleware y de fallo del hito R0 (`EXP-001` a `EXP-003`). Sus conclusiones alimentan [`docs/phase-1-ray/dependencies.md`](../../docs/phase-1-ray/dependencies.md).
+
+Estructura y reglas: [`evidence/README.md`](../README.md).

@@ -2,13 +2,14 @@
 
 ## Trazabilidad
 - Requisitos:
+- Propiedades afectadas (I-xx / AI-xx):
 - Issue:
 - Contrato / ADR:
 
 ## Verificación
 - [ ] Pruebas ejecutadas y resultado:
 - [ ] Criterios de aceptación demostrados:
-- [ ] Evidencia experimental adjunta, si aplica:
+- [ ] Si investiga un fallo o una carga: experimento en `evidence/` con la predicción versionada antes de ejecutar:
 
 ## Revisión y defensa
 - [ ] Revisión cruzada completada.
