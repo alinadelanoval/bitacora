@@ -19,21 +19,22 @@ El prototipo valida el flujo funcional y permite observar qué capacidades de
 Ray intervienen en el sistema. Su arquitectura documentada debe corresponder
 al código que se ejecute, no a un diseño supuesto.
 
-Para cada comportamiento relevante, registrar:
+Los artefactos de esta fase viven en [`phase-1-ray/`](phase-1-ray/):
 
-| Requisito | Componente de Bitácora | Capacidad de Ray observada | Evidencia | Implicación para Go |
-|---|---|---|---|---|
-| RF-* | Actor, tarea u operación | Capacidad realmente utilizada | Prueba o experimento | Estado y responsabilidad que debe asumir la versión nativa |
+- [`dependencies.md`](phase-1-ray/dependencies.md): diagrama de arquitectura
+  (componentes de Bitácora y de Ray) y mapa de dependencias del middleware.
+- [`exit-gate.md`](phase-1-ray/exit-gate.md): puerta de salida y congelación
+  del contrato.
 
-La vista debe identificar quién posee el estado, qué operaciones lo modifican,
-cómo se comunican los componentes y qué sucede al reiniciar o perder un actor.
 Las observaciones del prototipo deben distinguirse de las garantías del
 contrato: una limitación de Ray o del prototipo no redefine por sí misma el
-comportamiento objetivo.
+comportamiento objetivo. Este documento describe a partir de aquí la
+arquitectura nativa; el material de la Fase 1 queda congelado al cerrar la
+fase.
 
 La fase termina con el prototipo funcional, el contrato inicial, un diagrama,
-el mapa de capacidades observado, pruebas iniciales y al menos un experimento
-reproducible.
+el mapa de dependencias observado, pruebas iniciales, al menos un experimento
+reproducible y la puerta de salida respondida.
 
 ## Fase 2: implementación nativa en Go
 
@@ -158,18 +159,31 @@ Completar y ajustar esta tabla a los mensajes realmente implementados. Las
 decisiones que afecten al comportamiento externo deben mantenerse también en
 [`contract.md`](contract.md), sin duplicar allí los detalles internos.
 
-## Invariantes internas
+## Propiedades de arquitectura
 
-| ID | Propiedad | Mecanismo | Verificación |
-|---|---|---|---|
-| AI-01 | Una época antigua no modifica el estado del líder vigente. | Validación de época en operaciones del plano de datos y de control. | Aislamiento y recuperación del líder anterior. |
-| AI-02 | Una réplica solo se considera sincronizada si posee el prefijo requerido del log. | Comparación de posiciones y actualización del conjunto de réplicas sincronizadas. | Réplica retrasada y reingreso al conjunto. |
-| AI-03 | El estado confirmado del plano de control no diverge entre nodos participantes. | Replicación mediante Raft. | Caídas y recuperación de miembros del clúster. |
-| AI-04 | La recuperación local no expone registros parciales como completos. | Formato verificable de segmentos y recuperación del log. | Interrupciones y corrupción controlada. |
+Propiedades que dependen de un mecanismo concreto. Cada una **sostiene** uno o
+más invariantes del problema ([`requirements.md`](requirements.md#invariantes-del-problema))
+y se vuelve exigible cuando se acepta el ADR que la activa; hasta entonces es
+una propuesta de diseño, no una garantía.
 
-Los límites de fallos, el mecanismo implementado y el resultado de la prueba
-deben acompañar cada invariante. Las propiedades observables para el cliente se
-definen únicamente en el contrato.
+| ID | Propiedad | Mecanismo previsto | Sostiene | Decisión que la activa | Estado | Verificación |
+|---|---|---|---|---|---|---|
+| AI-01 | Una época antigua no modifica el estado del líder vigente. | Validación de época en operaciones de datos y de control | I-04 | ADR: elección de líder y cercado | Propuesta | Aislar y reincorporar al líder anterior |
+| AI-02 | Como máximo un nodo acepta escrituras por (partición, época). | Época replicada por consenso | I-04 | ADR: elección de líder y cercado | Propuesta | Logs de cambios de rol: nunca dos líderes con la misma época |
+| AI-03 | Una réplica solo cuenta para la confirmación si posee el prefijo requerido del log. | Conjunto de réplicas sincronizadas | I-03, I-04 | ADR: confirmación y réplicas sincronizadas | Propuesta | Réplica retrasada y reingreso al conjunto |
+| AI-04 | Un consumidor solo lee hasta el límite de visibilidad: nunca lee un registro que luego desaparece. | Límite de visibilidad (high watermark) | I-03, I-02 | ADR: visibilidad de lecturas | Propuesta | Lecturas durante cambios de líder frente a la lectura final |
+| AI-05 | Un seguidor elimina los registros no confirmados del líder anterior antes de replicar. | Truncamiento por época | I-03, I-04 | ADR: reconciliación tras cambio de líder | Propuesta | Cadena de dos caídas seguidas |
+| AI-06 | El estado de metadatos confirmado no diverge entre nodos. Se heredan *Election Safety* y *State-Machine Safety* de la librería de consenso; no se reverifican. | Replicación mediante Raft | I-07 | ADR: consenso para metadatos | Propuesta | Caídas y recuperación de miembros del clúster |
+| AI-07 | Un miembro con generación obsoleta no puede confirmar offsets. | Generación de grupo | I-07 | ADR: coordinación de grupos | Propuesta | Consumidor pausado más que la sesión |
+| AI-08 | Los offsets confirmados de un grupo no retroceden, salvo reinicio explícito con el grupo vacío. | Validación en el coordinador | I-06 | ADR: offsets de grupo | Propuesta | Secuencia de commits por grupo y partición |
+| AI-09 | Para cada clave, el orden de lectura coincide con el orden de confirmación. | Partición por clave | I-02 | ADR: partición por clave | Propuesta | Comparación por clave, un productor por clave |
+| AI-10 | La recuperación local no expone registros parciales como completos. | Formato verificable de segmentos | I-05 | ADR: formato de segmentos | Propuesta | Interrupciones y corrupción controlada |
+| AI-11 | El estado de deduplicación se reconstruye tras una recuperación o un cambio de líder. | Estado por identidad de productor, replicado con los lotes | I-08 | ADR: idempotencia de productor | Propuesta | Reintento tras `kill -9` y tras conmutación |
+
+Los límites de fallo, el mecanismo implementado y el resultado de la prueba
+deben acompañar cada propiedad cuando su ADR se acepte. Las propiedades
+observables por el cliente se definen en el contrato y en los invariantes del
+problema.
 
 ## Fase 3: verificación y evolución
 
