@@ -45,7 +45,7 @@ La columna *Fase 1 (Ray)* se completa con lo observado en
 | Reintentos y duplicados | Reintentos del runtime | Idempotencia de productor · identidad de petición · sin reintento | Pendiente | Pendiente | I-08, AI-11 | — | Por redactar |
 | Coordinación de grupos y offsets | Actor `GroupCoordinator` | Coordinador en el líder de consenso · por hash · en el cliente | Pendiente | Pendiente | I-06, I-07, AI-07, AI-08 | — | Por redactar |
 | Partición por clave | No aplica | Hash de clave · explícita · sin clave | Pendiente | Pendiente | AI-09 | — | Por redactar |
-| Formato de almacenamiento y recuperación | Archivo por réplica | Segmentos con integridad e índices · registro por archivo | Pendiente | Pendiente | I-05, AI-10 | — | Por redactar |
+| Formato de almacenamiento y recuperación | Archivo por réplica | Segmentos con integridad e índices · registro por archivo | Lote binario con CRC-32C, mismo formato en la red y en disco | Integridad de extremo a extremo; el servidor no decodifica los registros; un único formato para red y disco | I-05, AI-10 | [ADR-001](ADR-001-formato-de-lote-en-el-contrato.md) | Propuesta |
 | Control de carga | Cola del actor | Colas acotadas y plazos · rechazo · créditos | Pendiente | Pendiente | — | — | Por redactar |
 | Observabilidad | Dashboard de Ray | Logs estructurados con identificadores y métricas | Pendiente | Pendiente | — | — | Por redactar |
 | Seguridad | Ninguna | Tokens por rol · TLS mutuo · sin autenticación | Pendiente | Pendiente | I-09 | — | Por redactar |

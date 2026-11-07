@@ -50,6 +50,8 @@ enum ErrorCode {
   ERROR_CODE_UNKNOWN_TOPIC_OR_PARTITION = 14;
   ERROR_CODE_GROUP_NOT_EMPTY = 15;
   ERROR_CODE_PERMISSION_DENIED = 16;
+  ERROR_CODE_TOPIC_ALREADY_EXISTS = 17;
+  ERROR_CODE_INVALID_REQUEST = 18;
 }
 
 enum Acks {
@@ -91,15 +93,18 @@ message TopicMetadata {
 }
 
 message ProduceRequest {
+  // Retirados en el contrato v1: la identidad del productor y los registros
+  // viajan dentro de record_batch (ADR-001).
+  reserved 6, 7, 8, 9;
+  reserved "producer_id", "producer_epoch", "base_sequence", "records";
   string topic = 1;
-  int32 partition = 2;
+  // Presencia explícita: si falta, ERROR_CODE_INVALID_REQUEST.
+  optional int32 partition = 2;
   int32 leader_epoch = 3;
   Acks acks = 4;
   int32 timeout_ms = 5;
-  int64 producer_id = 6;
-  int32 producer_epoch = 7;
-  int32 base_sequence = 8;
-  repeated Record records = 9;
+  // Lote binario con CRC-32C; formato en docs/contract.md.
+  bytes record_batch = 10;
 }
 
 message ProduceResponse {
@@ -110,7 +115,8 @@ message ProduceResponse {
 
 message FetchRequest {
   string topic = 1;
-  int32 partition = 2;
+  // Presencia explícita: si falta, ERROR_CODE_INVALID_REQUEST.
+  optional int32 partition = 2;
   int64 offset = 3;
   int32 max_bytes = 4;
   int32 max_wait_ms = 5;
@@ -122,10 +128,15 @@ message OffsetRecord {
 }
 
 message FetchResponse {
+  // Retirado en el contrato v1: los registros viajan como lotes (ADR-001).
+  reserved 2;
+  reserved "records";
   ErrorCode error = 1;
-  repeated OffsetRecord records = 2;
   int64 high_watermark = 3;
   int64 log_start_offset = 4;
+  // Lotes completos tal como están guardados; el primero puede contener
+  // registros anteriores al offset pedido, que el cliente descarta.
+  bytes record_batches = 5;
 }
 
 message ListOffsetsRequest {

@@ -2,258 +2,293 @@
 
 ## Propósito
 
-Este documento define el comportamiento que pueden observar los clientes de
-Bitácora. Se aplica al prototipo Ray y al servidor nativo Go. Las dos
-implementaciones deben ofrecer las mismas reglas para las operaciones que
-comparten.
+Este documento define el comportamiento que observan los clientes de Bitácora:
+las operaciones de la API, sus resultados, sus errores y el formato de los
+lotes de registros. No determina cómo se implementan el almacenamiento, la
+coordinación ni la replicación; esos mecanismos se describen en
+[`architecture.md`](architecture.md).
 
-La API de red se versiona en `proto/bitacora/v1/`. Este contrato especifica el
-significado de sus operaciones; no determina cómo se implementan el
-almacenamiento, la coordinación ni la replicación. Esos mecanismos se
-describen en [`architecture.md`](architecture.md).
+La API de red se define en `proto/bitacora/v1/bitacora.proto`. Este documento
+especifica la semántica de sus operaciones.
 
-## Estado y versión del contrato
+## Convenciones
 
-- **Versión:** borrador `0.x`. Se congela en la puerta de salida de la Fase 1
-  ([`phase-1-ray/exit-gate.md`](phase-1-ray/exit-gate.md)); después solo cambia
-  mediante un ADR que explique el motivo, el efecto en los clientes y las
-  pruebas.
-- **Congelado en:** _por completar (commit / etiqueta)_.
+- **Debe**, **no debe** y **puede** tienen el significado normativo de
+  [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): obligación,
+  prohibición y opción.
+- **LEO** (*log end offset*): offset que se asignaría a la siguiente escritura
+  en una partición.
+- **High watermark**: límite de visibilidad de una partición. Los consumidores
+  solo leen registros por debajo de él.
 
-Estado de cada operación respecto a la conformidad. Se actualiza al avanzar el
-prototipo y la suite de `contracttest/`; «pendiente» no significa que la regla
-sea opcional, sino que todavía no se ha comprobado.
+## Versión
 
-| Operación | Prototipo Ray | Servidor Go | Caso en `contracttest/` |
-|---|---|---|---|
-| `Produce` | pendiente | pendiente | pendiente |
-| `Fetch` | pendiente | pendiente | pendiente |
-| `ListOffsets` | pendiente | pendiente | pendiente |
-| `JoinGroup`, `Heartbeat`, `LeaveGroup` | pendiente | pendiente | pendiente |
-| `CommitOffsets`, `FetchCommittedOffsets` | pendiente | pendiente | pendiente |
-| `GetMetadata`, `CreateTopic` | pendiente | pendiente | pendiente |
-| `InitProducerId` | no aplica en Fase 1 (idempotencia nativa) | pendiente | pendiente |
-| `ResetGroupOffsets` | pendiente | pendiente | pendiente |
+- **Versión:** `1.0`, en revisión.
+- **Congelada en:** _por completar (commit / etiqueta)_. Tras la congelación,
+  cualquier cambio requiere un ADR que justifique el motivo, el efecto en los
+  clientes y las pruebas afectadas.
+- **Decisiones relacionadas:**
+  [ADR-001](decisions/ADR-001-formato-de-lote-en-el-contrato.md), formato de
+  lote.
 
-### Cuestiones abiertas
+## Perfiles de conformidad
 
-Reglas que todavía no están cerradas y que deben decidirse (o marcarse como
-observadas) antes de congelar. No convertirlas en aserciones de prueba hasta
-entonces.
+El contrato define dos perfiles. Cada implementación declara el perfil que
+cumple.
 
-- Offset solicitado que ya no está disponible: el texto admite «error o
-  posición válida definida por la API». Decidir cuál de las dos.
-- Alcance de `acks=all` en el prototipo Ray (réplicas vivas) frente a la
-  garantía nativa (ISR y límite de visibilidad): documentar la diferencia
-  observada.
+- **Básico:** temas y particiones, escritura y lectura de lotes, offsets,
+  grupos de consumidores, progreso confirmado y administración de temas.
+- **Completo:** el perfil básico y, además, deduplicación por identidad de
+  productor, `InitProducerId`, rechazo de escrituras `ACKS_ALL` por debajo del
+  mínimo de réplicas sincronizadas, rechazo de épocas de líder obsoletas y
+  autenticación y autorización por token.
 
-## Operaciones de la API
+Una implementación del perfil básico debe responder el estado gRPC
+`UNIMPLEMENTED` a `InitProducerId` y no debe presentar como garantizadas las
+propiedades exclusivas del perfil completo. Las pruebas de conformidad de una
+regla del perfil completo se informan como «no aplica» contra una
+implementación del perfil básico; nunca como superadas.
+
+### Estado de conformidad
+
+| Operación | Perfil | `prototype/` (básico) | `bitacorad` (completo) | Caso en `contracttest/` |
+|---|---|---|---|---|
+| `Produce` | Básico; deduplicación y mínimo de réplicas: completo | pendiente | pendiente | pendiente |
+| `Fetch` | Básico | pendiente | pendiente | pendiente |
+| `ListOffsets` | Básico | pendiente | pendiente | pendiente |
+| `JoinGroup`, `Heartbeat`, `LeaveGroup` | Básico | pendiente | pendiente | pendiente |
+| `CommitOffsets`, `FetchCommittedOffsets` | Básico | pendiente | pendiente | pendiente |
+| `GetMetadata`, `CreateTopic` | Básico; épocas e ISR: completo | pendiente | pendiente | pendiente |
+| `InitProducerId` | Completo | `UNIMPLEMENTED` | pendiente | pendiente |
+| `ResetGroupOffsets` | Básico | pendiente | pendiente | pendiente |
+
+«Pendiente» indica que la regla todavía no se ha comprobado, no que sea
+opcional.
+
+## Operaciones
 
 El servicio público se divide en `Log`, `Groups` y `Admin`. Los errores de
-dominio se devuelven mediante el `ErrorCode` de la respuesta; los errores de
-transporte de gRPC quedan reservados para fallos del canal o del servidor.
-`Replication` es un servicio interno entre nodos y no forma parte de la API
-estable del cliente.
+dominio se devuelven en el campo `ErrorCode` de la respuesta. Los estados de
+gRPC se reservan para fallos del canal o del servidor y para operaciones no
+implementadas.
 
-| Operación | Servicio | Resultado visible | Reintento |
+| Operación | Precondiciones | Resultado | Errores de dominio | Reintento | Visible después |
+|---|---|---|---|---|---|
+| `Produce` | Tema y partición existentes; `partition` presente; `acks` especificado; `timeout_ms > 0`; lote válido | Offset del primer registro del lote; `-1` con `ACKS_NONE` | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `CORRUPT_MESSAGE`, `NOT_LEADER`, `REQUEST_TIMED_OUT`; perfil completo: `NOT_ENOUGH_REPLICAS`, `FENCED_LEADER_EPOCH`, `OUT_OF_ORDER_SEQUENCE`, `DUPLICATE_SEQUENCE` | Con identidad de productor (perfil completo), sin duplicar. Sin identidad, puede duplicar | Cuando el high watermark cubre el lote |
+| `Fetch` | Tema y partición existentes; `partition` presente; `max_bytes > 0` | Lotes desde el que contiene `offset`, por debajo del high watermark | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `OFFSET_OUT_OF_RANGE`, `NOT_LEADER` | Sí | — |
+| `ListOffsets` | Partición existente; posición especificada | Primer offset disponible, high watermark o primer offset con timestamp igual o posterior al pedido; `-1` si no existe | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST` | Sí | — |
+| `JoinGroup` | `member_id` no vacío | Generación y asignación vigentes | `INVALID_REQUEST`, `REBALANCE_IN_PROGRESS` | Sí, con el mismo `member_id` | En la asignación del grupo |
+| `Heartbeat` | Miembro y generación vigentes | Latido aceptado | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION`, `REBALANCE_IN_PROGRESS` | Sí | — |
+| `LeaveGroup` | — | El miembro deja el grupo | — | Sí | El grupo se reequilibra |
+| `CommitOffsets` | Miembro y generación vigentes | Por partición, el mayor entre el offset confirmado y el pedido | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION` | Sí | En `FetchCommittedOffsets` |
+| `FetchCommittedOffsets` | — | Offset confirmado por partición; las particiones sin commit no aparecen | `INVALID_REQUEST` | Sí | — |
+| `GetMetadata` | — | Líder, época, réplicas e ISR por partición | `UNKNOWN_TOPIC_OR_PARTITION` | Sí | — |
+| `CreateTopic` | Nombre no vacío; `partitions ≥ 1`; factor de replicación válido | Metadatos del tema | `TOPIC_ALREADY_EXISTS`, `INVALID_REPLICATION_FACTOR`, `INVALID_REQUEST` | Sí, con el mismo `request_id` | En `GetMetadata` |
+| `InitProducerId` | Perfil completo | Identidad y época del productor | — | Sí, con el mismo `request_id` | — |
+| `ResetGroupOffsets` | Grupo vacío | Nuevas posiciones de lectura | `GROUP_NOT_EMPTY`, `INVALID_REQUEST` | Sí, con el mismo `request_id` y posiciones | En `FetchCommittedOffsets` |
+
+Con autenticación (perfil completo), cualquier operación puede devolver además
+`ERROR_CODE_PERMISSION_DENIED`.
+
+El servicio `Replication` es interno entre nodos y no forma parte de este
+contrato. Sus peticiones requieren credenciales de nodo y no deben exponerse a
+los clientes.
+
+## Formato del lote
+
+Los registros viajan en lotes: una cabecera fija de 61 bytes seguida de los
+registros. El servidor valida la cabecera y almacena los bytes sin decodificar
+los registros; la lectura devuelve los mismos bytes. Una petición `Produce`
+contiene un único lote. Los enteros de la cabecera son big-endian.
+
+| Bytes | Campo | Tipo | Valor |
 |---|---|---|---|
-| `Produce` | `Log` | Offset base del lote aceptado y posición inicial del log. | Sí cuando se conserva la identidad y secuencia del productor; la respuesta perdida no implica rechazo. |
-| `Fetch` | `Log` | Registros desde el offset pedido, en orden y hasta el high watermark. Puede esperar hasta `max_wait_ms`. | Sí; no modifica el log. |
-| `ListOffsets` | `Log` | Offset earliest, latest o del primer registro con timestamp igual o posterior al solicitado. | Sí; no modifica el estado. |
-| `JoinGroup` | `Groups` | Identidad del miembro, generación y asignación vigente. | Sí; devuelve la generación vigente. |
-| `Heartbeat` | `Groups` | Aceptación del latido o error de miembro/generación. | Sí mientras el miembro y la generación sigan vigentes. |
-| `LeaveGroup` | `Groups` | Confirmación de salida del miembro. | Sí; repetir la salida no debe duplicar miembros. |
-| `CommitOffsets` | `Groups` | Confirmación de los siguientes offsets de lectura. | Sí; confirmar los mismos valores es idempotente. |
-| `FetchCommittedOffsets` | `Groups` | Último offset confirmado para cada partición solicitada. | Sí; no modifica el estado. |
-| `GetMetadata` | `Admin` | Líder, época, réplicas e ISR por partición. | Sí; es una consulta. |
-| `CreateTopic` | `Admin` | Metadatos del tema creado. `request_id` permite reconocer el reintento de la misma mutación. | Sí con el mismo `request_id`. |
-| `InitProducerId` | `Admin` | Identidad y época asignadas al productor. | Sí con el mismo `request_id`. |
-| `ResetGroupOffsets` | `Admin` | Confirmación de las nuevas posiciones de lectura solicitadas. | Sí con el mismo `request_id` y posiciones. |
+| 0–7 | `baseOffset` | int64 | El cliente escribe `0`; el líder escribe el offset del primer registro |
+| 8–11 | `batchLength` | int32 | Bytes que siguen a este campo |
+| 12–15 | `partitionLeaderEpoch` | int32 | El cliente escribe `-1`; el líder escribe su época |
+| 16 | `magic` | int8 | Versión del formato: `2` |
+| 17–20 | `crc` | uint32 | CRC-32C (Castagnoli) de los bytes desde `attributes` hasta el final |
+| 21–22 | `attributes` | int16 | `0` |
+| 23–26 | `lastOffsetDelta` | int32 | `recordCount - 1` |
+| 27–34 | `baseTimestamp` | int64 | Milisegundos Unix del primer registro |
+| 35–42 | `maxTimestamp` | int64 | Mayor timestamp del lote |
+| 43–50 | `producerId` | int64 | Identidad del productor; `-1` sin identidad |
+| 51–52 | `producerEpoch` | int16 | `-1` sin identidad |
+| 53–56 | `baseSequence` | int32 | Secuencia del primer registro; `-1` sin identidad |
+| 57–60 | `recordCount` | int32 | Número de registros, `≥ 1` |
 
-El servicio interno `Replication` contiene `ReplicaFetch`,
-`OffsetForLeaderEpoch`, `BrokerHeartbeat` y `AlterPartition`. Sus operaciones,
-mensajes y reglas pueden cambiar sin romper el contrato de cliente. Las
-peticiones de ese servicio requieren credenciales de nodo; no deben exponerse
-como operaciones de cliente.
+`baseOffset` y `partitionLeaderEpoch` quedan fuera del CRC: los escribe el
+servidor después de que el cliente lo calcule.
 
-La identidad de productor (`producer_id`, época y secuencia) forma parte de
-`Produce`. La deduplicación persistente es una garantía de las fases nativas;
-el prototipo Ray de Fase 1 no la presupone y debe medir/documentar si un
-reintento produce duplicados. Del mismo modo, en Ray `acks=all` espera a las
-réplicas vivas del prototipo y no equivale aún a la garantía nativa basada en
-ISR, high watermark y fencing por época de líder.
+Cada registro tiene esta forma, donde `varint` es un entero de longitud
+variable con codificación zigzag:
+
+| Campo | Tipo |
+|---|---|
+| `length` | varint: bytes restantes del registro |
+| `attributes` | int8: `0` |
+| `timestampDelta` | varint: timestamp − `baseTimestamp` |
+| `offsetDelta` | varint: posición en el lote, desde `0` |
+| `keyLength`, `key` | varint y bytes; `-1` sin clave |
+| `valueLength`, `value` | varint y bytes; `-1` sin valor |
+| `headersCount`, `headers` | varint y, por cabecera: `keyLength`, `key`, `valueLength`, `value` |
+
+El servidor debe rechazar el lote sin escribir ningún registro cuando:
+
+- `magic ≠ 2`, la longitud no coincide con los bytes recibidos o el CRC no
+  coincide: `ERROR_CODE_CORRUPT_MESSAGE`;
+- `recordCount < 1`, `lastOffsetDelta ≠ recordCount - 1`, `attributes ≠ 0`, o
+  la identidad de productor es parcial (unos campos a `-1` y otros no):
+  `ERROR_CODE_INVALID_REQUEST`.
 
 ## Modelo de datos y posiciones
 
 - Un tema contiene una o más particiones.
-- Cada partición es un log ordenado de forma independiente. No se garantiza un
-  orden global entre particiones.
-- Cada registro aceptado recibe un offset entero dentro de su partición. Los
-  offsets empiezan en cero, son contiguos y crecientes, y no se reutilizan.
-- El offset identifica un registro. Una petición de lectura desde el offset
-  `n` incluye el registro `n` si todavía está disponible.
-- El offset de fin representa la siguiente posición que se asignaría a una
-  escritura. Una lectura desde ese offset no devuelve registros hasta que
-  haya nuevas escrituras visibles.
-- Los offsets confirmados por un grupo identifican la siguiente posición que
-  ese grupo debe leer. Confirmar un offset no elimina ni modifica registros.
-- La lectura de registros replicados no avanza más allá del límite de
-  visibilidad comunicado por el líder vigente.
+- Cada partición es un log ordenado de forma independiente. No existe orden
+  global entre particiones.
+- Cada registro aceptado recibe un offset dentro de su partición. Los offsets
+  empiezan en cero, son contiguos y crecientes, y no se reutilizan. Los
+  registros de un lote reciben offsets consecutivos desde `baseOffset`.
+- Una lectura desde el offset `n` incluye el registro `n` si sigue disponible.
+- El offset confirmado de un grupo es la siguiente posición que el grupo debe
+  leer. Confirmarlo no modifica el log.
 
 ## Escritura
 
-La operación de escritura añade registros a una partición y devuelve su
-posición cuando la API puede confirmar el resultado según el nivel de
-confirmación solicitado.
-
-| Nivel | Resultado |
+| `acks` | Respuesta |
 |---|---|
-| `acks=0` | El productor no espera una confirmación del servidor y no puede concluir que el registro se haya almacenado. |
-| `acks=1` | La escritura se confirma cuando el líder vigente la ha aceptado localmente. Una pérdida del líder antes de replicarla puede hacer que el registro no sobreviva. |
-| `acks=all` | La escritura se confirma cuando la cumplen las réplicas sincronizadas requeridas por la configuración. Si el número de réplicas disponibles cae por debajo del mínimo configurado, la escritura falla en lugar de confirmar una garantía que no puede cumplir. |
+| `ACKS_NONE` | Al recibir el lote, con `base_offset = -1`. El productor no puede concluir que el lote se haya almacenado. |
+| `ACKS_LEADER` | Cuando el líder ha escrito el lote. Si el líder falla antes de replicarlo, el lote puede perderse. |
+| `ACKS_ALL` | Cuando las réplicas sincronizadas han escrito el lote. En el perfil completo, si las réplicas sincronizadas no alcanzan el mínimo configurado, la escritura falla con `ERROR_CODE_NOT_ENOUGH_REPLICAS`. |
+| `ACKS_UNSPECIFIED` | Se rechaza con `ERROR_CODE_INVALID_REQUEST`. |
 
-El nivel de confirmación y la configuración de replicación determinan la
-durabilidad; ninguna confirmación garantiza supervivencia ante fallos ajenos al
-modelo configurado.
+Ninguna confirmación garantiza la supervivencia ante fallos ajenos al modelo
+configurado.
 
-Las escrituras del productor se identifican mediante una identidad y una
-secuencia por partición. Repetir una secuencia ya aceptada no crea un segundo
-registro. Un timeout o una conexión interrumpida no permite al productor
-deducir si la escritura tuvo efecto; el reintento debe conservar la identidad
-y la secuencia originales.
+La identidad del productor va en la cabecera del lote. En el perfil completo,
+un lote con una secuencia ya aceptada no crea registros nuevos. Un lote sin
+identidad no tiene protección contra duplicados.
 
 ## Lectura
 
-Una petición de lectura identifica tema, partición, offset inicial y límites
-de cantidad o tamaño. Los registros se devuelven en orden creciente de offset
-y no superan el límite de visibilidad de la partición.
+- Rango válido: `logStartOffset ≤ offset ≤ LEO`.
+- Fuera de ese rango, la respuesta es `ERROR_CODE_OFFSET_OUT_OF_RANGE`. La
+  posición no se sustituye por otra.
+- Si `offset` es igual al LEO o está entre el high watermark y el LEO, el
+  servidor espera hasta `max_wait_ms` a que haya registros visibles y, si no
+  los hay, responde vacío. Con `max_wait_ms = 0` responde sin esperar.
+- La respuesta contiene lotes completos. El primero puede incluir registros
+  anteriores a `offset`, que el cliente debe descartar.
 
-Una respuesta vacía indica que no hay registros disponibles en ese momento
-dentro del límite solicitado; no indica el final permanente del tema. Una
-petición con una posición inválida o con un recurso inexistente devuelve el
-error correspondiente.
-
-El consumidor puede comenzar desde el primer registro disponible, desde el
-offset de fin o desde un offset explícito. Si el offset solicitado ya no está
-disponible, la operación comunica el error o posición válida definida por la
-API; no lo sustituye silenciosamente por otra posición.
-
-Una lectura por fecha devuelve el primer offset cuyo timestamp sea igual o
-posterior a la fecha solicitada. Si no existe tal registro, la respuesta indica
-que no hay una posición disponible para esa fecha.
+Una respuesta vacía indica que no hay registros disponibles en ese momento; no
+indica el final del tema.
 
 ## Grupos de consumidores
 
-Los miembros de un grupo comparten el progreso confirmado y reciben una
-asignación de particiones. En una misma generación activa, cada partición se
-asigna como máximo a un miembro del grupo.
+En una misma generación, cada partición se asigna como máximo a un miembro del
+grupo. Cada cambio de membresía produce una nueva generación y una nueva
+asignación, en menos de 15 s en la configuración de referencia.
 
-Los cambios de membresía generan una nueva asignación y una nueva generación.
-La asignación se completa en menos de 15 s en la configuración de referencia.
-Un `JoinGroup` sin `member_id` solicita una identidad nueva; uno con identidad
-vigente solicita reincorporar ese miembro. Las operaciones de commit asociadas
-a una generación obsoleta se rechazan. Un miembro que retoma el consumo puede
-solicitar la posición confirmada del grupo o una posición explícita para
-reprocesar registros.
-
-El commit guarda la siguiente posición que se leerá, no modifica el log y no
-impide que el mismo grupo o un consumidor independiente vuelva a leer
-posiciones anteriores.
+- **Identidad.** El cliente genera su `member_id` antes de unirse y debe
+  reutilizarlo en los reintentos. De este modo, repetir un `JoinGroup` cuya
+  respuesta se perdió no crea un segundo miembro.
+- **Commits.** Un commit de una generación obsoleta se rechaza con
+  `ERROR_CODE_ILLEGAL_GENERATION`. Para cada partición se conserva el mayor
+  offset confirmado, de modo que un commit que llega tarde no hace retroceder
+  el progreso. El retroceso explícito se hace con `ResetGroupOffsets`.
+- **Progreso.** `FetchCommittedOffsets` omite las particiones sin commit; el
+  cliente aplica entonces su política de posición inicial.
+- **Salida.** `LeaveGroup` es idempotente: si el miembro ya no pertenece al
+  grupo, responde `ERROR_CODE_NONE`.
 
 ## Resultado indeterminado
 
-Una operación de escritura puede terminar de tres formas observables: **correcta**
-(se conoce su offset), **fallida** (se sabe que no tuvo efecto, por ejemplo por
-un error de validación) o **indeterminada** (timeout, conexión interrumpida o
-respuesta perdida). En el último caso el cliente no puede deducir si la
-escritura tuvo efecto.
+Una escritura termina de una de tres formas: **correcta** (se conoce su
+offset), **fallida** (se sabe que no tuvo efecto) o **indeterminada** (timeout,
+conexión interrumpida o respuesta perdida). En el último caso el cliente no
+puede deducir si la escritura tuvo efecto.
 
-- Una escritura indeterminada **no** genera la obligación de durabilidad de
-  [I-03](requirements.md#invariantes-del-problema): puede aparecer en el log o no.
-- El reintento debe conservar la identidad y la secuencia originales. Con una
-  identidad vigente, la escritura aparece **a lo sumo una vez** (I-08).
-- Sin identidad (por ejemplo, el prototipo Ray de la Fase 1), un reintento puede
-  producir un duplicado; el comportamiento observado se documenta en
-  [`phase-1-ray/dependencies.md`](phase-1-ray/dependencies.md).
+- Una escritura indeterminada no genera la obligación de durabilidad de
+  [I-03](requirements.md#invariantes-del-problema).
+- El reintento debe reenviar el lote original. Con identidad de productor
+  (perfil completo), el lote aparece a lo sumo una vez (I-08); sin identidad,
+  puede aparecer duplicado.
 
 Las propiedades que el sistema debe conservar se recogen en
-[`requirements.md`](requirements.md#invariantes-del-problema); este contrato no
-las duplica.
+[`requirements.md`](requirements.md#invariantes-del-problema).
 
-## Errores y reintentos
+## Errores
 
-La lista de códigos de dominio es cerrada y se define en
-`proto/bitacora/v1/bitacora.proto`:
+La lista de códigos es cerrada:
 
-| Código | Significado | Política general |
+| Código | Significado | Política del cliente |
 |---|---|---|
-| `ERROR_CODE_NONE` | Operación correcta. | No aplica. |
-| `ERROR_CODE_NOT_LEADER` | El nodo no es líder de la partición. | Reintentar tras refrescar metadatos. |
-| `ERROR_CODE_FENCED_LEADER_EPOCH` | La época del líder solicitante es obsoleta. | Refrescar metadatos antes de reintentar. |
-| `ERROR_CODE_NOT_ENOUGH_REPLICAS` | No se cumple el mínimo de réplicas sincronizadas. | Reintentable si el cliente conserva la identidad de escritura. |
-| `ERROR_CODE_OFFSET_OUT_OF_RANGE` | El offset solicitado no es válido o ya no está disponible. | No reintentar sin corregir la posición. |
-| `ERROR_CODE_OUT_OF_ORDER_SEQUENCE` | La secuencia del productor no es la esperada. | No reintentar sin reconciliar el estado del productor. |
+| `ERROR_CODE_NONE` | Operación correcta. | — |
+| `ERROR_CODE_NOT_LEADER` | El nodo no es líder de la partición. | Refrescar metadatos y reintentar. |
+| `ERROR_CODE_FENCED_LEADER_EPOCH` | La época de líder indicada es obsoleta. | Refrescar metadatos y reintentar. |
+| `ERROR_CODE_NOT_ENOUGH_REPLICAS` | Las réplicas sincronizadas no alcanzan el mínimo. | Reintentar con la misma identidad de productor. |
+| `ERROR_CODE_OFFSET_OUT_OF_RANGE` | El offset está fuera de `[logStartOffset, LEO]`. | Corregir la posición. |
+| `ERROR_CODE_OUT_OF_ORDER_SEQUENCE` | La secuencia del productor no es la esperada. | Reconciliar el estado del productor. |
 | `ERROR_CODE_DUPLICATE_SEQUENCE` | La secuencia ya fue aceptada. | Tratar como éxito con el offset original. |
-| `ERROR_CODE_ILLEGAL_GENERATION` | La generación del grupo ya no es vigente. | Reunirse al grupo y usar la generación nueva. |
+| `ERROR_CODE_ILLEGAL_GENERATION` | La generación del grupo no es vigente. | Volver a unirse al grupo. |
 | `ERROR_CODE_UNKNOWN_MEMBER` | El miembro no pertenece al grupo. | Volver a unirse al grupo. |
-| `ERROR_CODE_REBALANCE_IN_PROGRESS` | El grupo está cambiando su asignación. | Reintentable después de completar el rebalanceo. |
-| `ERROR_CODE_CORRUPT_MESSAGE` | El lote no supera la validación de integridad. | No reintentar sin corregir el lote. |
+| `ERROR_CODE_REBALANCE_IN_PROGRESS` | El grupo está reequilibrándose. | Reintentar al terminar el reequilibrio. |
+| `ERROR_CODE_CORRUPT_MESSAGE` | El lote no supera la validación de versión, longitud o CRC. | Corregir el lote. |
 | `ERROR_CODE_NOT_CONTROLLER` | El nodo no es el controlador. | Refrescar metadatos y reintentar. |
-| `ERROR_CODE_REQUEST_TIMED_OUT` | La operación excedió su plazo; puede haber tenido efecto. | Reintentar con la misma identidad de petición/escritura. |
-| `ERROR_CODE_INVALID_REPLICATION_FACTOR` | El factor de replicación solicitado no es válido. | No reintentar sin corregir la petición. |
-| `ERROR_CODE_UNKNOWN_TOPIC_OR_PARTITION` | No existe el tema o la partición solicitada. | No reintentar sin corregir metadatos o nombre. |
-| `ERROR_CODE_GROUP_NOT_EMPTY` | No se puede aplicar la operación porque el grupo tiene miembros activos. | Reintentable después de vaciar el grupo. |
-| `ERROR_CODE_PERMISSION_DENIED` | El principal no tiene permiso para la operación. | No reintentar sin credenciales/rol autorizados. |
+| `ERROR_CODE_REQUEST_TIMED_OUT` | La operación superó su plazo; puede haber tenido efecto. | Reintentar con la misma identidad. |
+| `ERROR_CODE_INVALID_REPLICATION_FACTOR` | El factor de replicación no es válido. | Corregir la petición. |
+| `ERROR_CODE_UNKNOWN_TOPIC_OR_PARTITION` | El tema o la partición no existen. | Corregir el nombre o refrescar metadatos. |
+| `ERROR_CODE_GROUP_NOT_EMPTY` | El grupo tiene miembros activos. | Reintentar cuando el grupo esté vacío. |
+| `ERROR_CODE_PERMISSION_DENIED` | El principal no tiene permiso. | Usar credenciales con el rol adecuado. |
+| `ERROR_CODE_TOPIC_ALREADY_EXISTS` | Existe un tema con ese nombre, creado con otro `request_id`. | Usar el tema existente o elegir otro nombre. |
+| `ERROR_CODE_INVALID_REQUEST` | Falta un campo obligatorio, un valor está fuera de rango o el lote incumple una regla de formato. | Corregir la petición. |
 
-Los errores temporales pueden permitir un reintento. El cliente debe aplicar
-retroceso exponencial, jitter y un presupuesto de reintentos. Nunca debe
-interpretar un timeout como prueba de que una escritura fue rechazada.
+Ante errores temporales, el cliente debe aplicar retroceso exponencial, jitter
+y un presupuesto de reintentos. Un timeout no debe interpretarse como rechazo
+de la escritura.
 
 ## Administración y autenticación
 
-Cada token corresponde a un principal y a uno de los roles `producer`,
-`consumer`, `admin` o `node`. El servidor autentica el token y autoriza la
-operación según el rol antes de modificar estado o entregar datos. Los errores
-de autenticación y autorización no revelan el token ni información sensible.
-Las acciones administrativas quedan registradas para su auditoría. La gestión
-avanzada de identidades, TLS mutuo y ACL por tema no forman parte del alcance.
+En el perfil completo, cada token identifica un principal con uno de los roles
+`producer`, `consumer`, `admin` o `node`. El servidor autentica el token y
+autoriza la operación antes de modificar estado o entregar datos.
 
-El cliente presenta su token como metadato de autenticación en las llamadas
-gRPC. Un token ausente o inválido, o un rol insuficiente, produce
-`ERROR_CODE_PERMISSION_DENIED` antes de ejecutar la operación. Esta capacidad
-se implementa en BIT-86 de la fase nativa; el prototipo inicial no debe
-presentar como demostrada una garantía de autenticación que aún no implementa.
+- El token viaja como metadato de autenticación de la llamada gRPC.
+- Un token ausente o inválido, o un rol insuficiente, produce
+  `ERROR_CODE_PERMISSION_DENIED` antes de ejecutar la operación.
+- Los errores no revelan el token ni información sensible, y las acciones
+  administrativas quedan registradas para auditoría.
 
-`producer` puede publicar; `consumer` puede leer y operar con grupos;
-`admin` puede consultar y modificar la configuración de temas y particiones;
-`node` se reserva a la comunicación interna entre procesos. Ningún rol concede
-por sí solo las capacidades de otro.
+| Rol | Permisos |
+|---|---|
+| `producer` | Publicar |
+| `consumer` | Leer y operar con grupos |
+| `admin` | Consultar y modificar temas y particiones |
+| `node` | Comunicación interna entre nodos |
 
-Las operaciones administrativas permiten crear y consultar los temas y
-particiones incluidos en el alcance. La CLI permite solicitar el reprocesamiento
-desde el inicio, el final, un offset o una fecha, sin modificar el log.
+Ningún rol concede las capacidades de otro. La gestión avanzada de
+identidades, TLS mutuo y ACL por tema quedan fuera del alcance.
 
 ## Conformidad
 
-Cada regla observable debe contar con un caso en `contracttest/`. La suite se
-ejecuta sin alterar sus expectativas contra Ray y Go para las operaciones
-implementadas en ambas fases.
+Cada regla observable debe tener un caso en `contracttest/`, etiquetado con su
+perfil. La suite se ejecuta sin modificar sus expectativas contra todas las
+implementaciones. Una diferencia entre implementaciones se corrige o se
+registra con su alcance y justificación; una prueba no se debilita para
+ocultarla.
 
-Como mínimo, las pruebas comprueban:
+| # | Comprobación | Perfil |
+|---|---|---|
+| 1 | Escritura y lectura ordenada dentro de una partición. | Básico |
+| 2 | Lectura desde un offset explícito, en el LEO y fuera de rango. | Básico |
+| 3 | Búsqueda por fecha y reprocesamiento desde la CLI. | Básico |
+| 4 | Reinicio y reanudación desde el progreso confirmado de un grupo. | Básico |
+| 5 | Asignación exclusiva, tiempo de reequilibrio, rechazo de commits de generaciones antiguas y progreso que no retrocede. | Básico |
+| 6 | Rechazo de lotes con CRC incorrecto y de peticiones con campos obligatorios ausentes. | Básico |
+| 7 | Reintento de una escritura cuya respuesta se perdió, sin duplicados. | Completo |
+| 8 | Rechazo de escrituras `ACKS_ALL` por debajo del mínimo de réplicas. | Completo |
+| 9 | Cambio de líder, recuperación y lectura limitada por el high watermark. | Completo |
+| 10 | Rechazo de tokens inválidos o roles insuficientes, sin exponer credenciales en logs. | Completo |
 
-1. Escritura y lectura ordenada dentro de una partición.
-2. Lectura desde offset explícito y comportamiento en el offset de fin.
-3. Búsqueda por fecha y reprocesamiento desde la CLI.
-4. Reinicio y reanudación desde el progreso confirmado de un grupo.
-5. Exclusividad de asignación, tiempo de rebalanceo y rechazo de commits de
-   generaciones antiguas.
-6. Reintento de una escritura cuya respuesta se perdió, sin crear duplicados.
-7. Rechazo de escrituras `acks=all` cuando no se alcanza el mínimo de réplicas.
-8. Cambio de líder, recuperación y lectura limitada por el límite de visibilidad.
-9. Rechazo de solicitudes con tokens inválidos o roles insuficientes, sin
-   exponer credenciales en logs.
-
-Una diferencia entre implementaciones debe corregirse o registrarse con su
-alcance y justificación; no se debe debilitar una prueba para ocultarla. Los
-cambios que alteren el comportamiento del cliente deben actualizar la API,
+Los cambios que alteren el comportamiento observable deben actualizar la API,
 este contrato y las pruebas de conformidad.
