@@ -19,10 +19,17 @@ y registrar qué parte de ese comportamiento proporciona el runtime.
 grupos de consumidores con generación y offsets confirmados, y el gateway
 gRPC que expone el servicio.
 
-**No incluye, de forma deliberada:** idempotencia de productor, épocas de
-líder (fencing), conjunto de réplicas sincronizadas con límite de visibilidad,
-autenticación y recuperación con integridad verificada. Su ausencia es parte
-del objeto de estudio: los experimentos miden las consecuencias.
+Incluye también un conjunto de réplicas sincronizadas y un límite de
+visibilidad ingenuos: el líder excluye a las réplicas que no responden en plazo
+y los consumidores solo leen hasta el límite. No equivalen a la gestión del
+conjunto sincronizado de la versión nativa.
+
+**No incluye, de forma deliberada:** idempotencia de productor (los lotes
+llevan la identidad a `-1` y `InitProducerId` responde `UNIMPLEMENTED`), épocas
+de líder (fencing), autenticación y recuperación con integridad verificada. Su
+ausencia es parte del objeto de estudio: los experimentos miden las
+consecuencias. El prototipo cumple el perfil básico del contrato
+([`contract.md`](../contract.md#perfiles-de-conformidad)).
 
 ## 2. Vista de contenedores
 
@@ -134,7 +141,7 @@ sequenceDiagram
 | Log de una partición | `PartitionReplica` (una copia por réplica) | Archivo JSON lines por réplica | Pendiente de verificar en `EXP-002` |
 | Líder y réplicas por partición | `Controller` | En memoria del actor | Pendiente de verificar en `EXP-002` |
 | Pertenencia, generación y offsets de grupo | `GroupCoordinator` | Volcado a archivo tras cada commit | Pendiente de verificar |
-| Identidad del productor | No existe en el prototipo | — | No aplica |
+| Identidad del productor | No existe en el prototipo: los lotes la llevan a `-1` | — | No aplica |
 
 ## 5. Mapa de dependencias del middleware
 
@@ -178,7 +185,7 @@ experimento pone a prueba: `verified`, `violated` o `not_evaluable`.
 | ID | Descripción | Consecuencia esperada | Medida |
 |---|---|---|---|
 | L-01 | No hay épocas de líder | Un líder anterior puede aceptar escrituras tras una promoción | Medirlo en `EXP-002`; se resuelve en la versión nativa |
-| L-02 | Los reintentos del runtime no distinguen operaciones con efecto | Posibles registros duplicados con `max_task_retries` > 0 | Medirlo en `EXP-003`; se resuelve con idempotencia de productor |
+| L-02 | Los reintentos del runtime no distinguen operaciones con efecto | Posibles registros duplicados con `max_task_retries` > 0 | Medirlo en `EXP-003`; se resuelve con idempotencia de productor, del perfil completo del contrato |
 | L-03 | La replicación *push* no regula el ritmo de las seguidoras | Una réplica lenta retrasa la confirmación | Documentar el plazo configurado y su efecto |
 | L-04 | Todos los nodos lógicos comparten una máquina | Los resultados cubren fallo de proceso, no de host | Declararlo en cada conclusión experimental |
 | L-05 | El estado en memoria de un actor se pierde si no se ha persistido | Pérdida de metadatos o de registros no volcados | Verificar el punto de persistencia en `EXP-002` |
