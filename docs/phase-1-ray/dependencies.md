@@ -54,7 +54,7 @@ flowchart LR
             f1["Réplica seguidora<br/><i>nodo n2</i>"]
             f2["Réplica seguidora<br/><i>nodo n3</i>"]
         end
-        store[("Archivo por réplica<br/>JSON lines")]
+        store[("Archivo por réplica<br/>lotes binarios")]
     end
 
     subgraph ray["Runtime Ray Core"]
@@ -138,8 +138,8 @@ sequenceDiagram
 
 | Estado | Propietario | Persistencia | Tras la pérdida o reinicio del propietario |
 |---|---|---|---|
-| Log de una partición | `PartitionReplica` (una copia por réplica) | Archivo JSON lines por réplica | Pendiente de verificar en `EXP-002` |
-| Líder y réplicas por partición | `Controller` | En memoria del actor | Pendiente de verificar en `EXP-002` |
+| Log de una partición | `PartitionReplica` (una copia por réplica) | Archivo por réplica con los lotes binarios del contrato, uno tras otro | Pendiente de verificar en `EXP-002` |
+| Líder y réplicas por partición | `Controller` | `controller.json`, reescrito de forma atómica (archivo temporal y `os.replace`) | Pendiente de verificar en `EXP-002` |
 | Pertenencia, generación y offsets de grupo | `GroupCoordinator` | Volcado a archivo tras cada commit | Pendiente de verificar |
 | Identidad del productor | No existe en el prototipo: los lotes la llevan a `-1` | — | No aplica |
 
