@@ -102,15 +102,34 @@ sequenceDiagram
     participant L as Réplica líder
     participant F as Réplicas seguidoras
 
+    participant K as Controller
+
     C->>G: Produce(tema, partición, lote, acks=all)
-    G->>L: append(lote)
+    G->>L: append(lote, "all")
     L->>L: Asigna offsets y persiste en su archivo
-    L->>F: replicate(lote, base_offset)
-    F-->>L: Confirmación, con espera acotada
+    L->>F: replicate(lotes, LEO, HW), sin esperar
+    L->>L: ray.wait(copias, timeout)
+    F-->>L: LEO de cada seguidora
+    opt Una réplica del ISR no tiene el lote a tiempo
+        L->>K: alter_isr(ISR sin ella)
+        K->>K: Guarda el ISR y registra isr_change
+        K-->>L: Aceptado
+    end
+    L->>L: HW = menor LEO del ISR
     L-->>G: base_offset
     G-->>C: ProduceResponse(base_offset)
-    Note over L,F: Una réplica que no responde dentro del plazo<br/>se excluye del conjunto sincronizado.
 ```
+
+El líder no aplica un ISR más pequeño hasta que el `Controller` lo ha guardado:
+mientras tanto calcula el HW con el anterior. Así, cualquier réplica que el
+`Controller` pueda promover tiene todos los lotes confirmados. Si el
+`Controller` no responde dentro del plazo, el lote queda escrito en el líder
+pero sin confirmar (`REQUEST_TIMED_OUT`); si rechaza el cambio, el líder pasa
+a seguidora (`NOT_LEADER`).
+
+Con `acks=1` el líder envía las copias y responde sin esperarlas. Las
+respuestas se leen sin bloquear (`ray.wait` con `timeout=0`) al principio de
+cada llamada posterior al líder, que es cuando avanza el HW.
 
 ### 3.2 Pérdida del proceso que aloja al líder
 
@@ -126,20 +145,35 @@ sequenceDiagram
     C->>G: Produce(...)
     G->>L: append(lote)
     Note over L: El proceso del worker termina (kill -9)
+    L--xG: RayActorError, o NotLeader si Ray ya lo reinició como seguidora
+    G->>K: report_leader_unavailable(tema, partición)
+    K->>L: status(), con timeout
+    K->>F: status(), con timeout
+    K->>K: Elige la réplica viva del ISR con mayor LEO,<br/>guarda líder e ISR y registra leader_change
+    K->>F: become_leader(seguidoras, ISR)
+    K-->>G: Líder vigente
     G-->>C: Error de dominio (REQUEST_TIMED_OUT o NOT_LEADER)
-    K->>F: Promueve a líder
     C->>G: Produce(...) reintento
     G->>F: append(lote)
     F-->>G: base_offset
     Note over K,F: Sin épocas: un líder anterior que reaparezca<br/>no queda cercado. Este comportamiento se mide en EXP-002.
 ```
 
+La caída se detecta cuando alguien no obtiene respuesta del líder y lo avisa;
+el `Controller` lo comprueba por sí mismo antes de promover. Nunca promueve a
+una réplica fuera del ISR, porque podría no tener lotes confirmados: si no
+responde ninguna del ISR, la partición queda sin líder. Una réplica que Ray
+reinicia vuelve siempre como seguidora; solo el `Controller` asigna el papel
+de líder.
+
 ## 4. Propiedad del estado
 
 | Estado | Propietario | Persistencia | Tras la pérdida o reinicio del propietario |
 |---|---|---|---|
 | Log de una partición | `PartitionReplica` (una copia por réplica) | Archivo por réplica con los lotes binarios del contrato, uno tras otro | Pendiente de verificar en `EXP-002` |
-| Líder y réplicas por partición | `Controller` | `controller.json`, reescrito de forma atómica (archivo temporal y `os.replace`) | Pendiente de verificar en `EXP-002` |
+| Líder, réplicas e ISR por partición | `Controller` | `controller.json`, reescrito de forma atómica (archivo temporal y `os.replace`) antes de comunicar cada cambio | Se conserva tras reiniciar el `Controller` (`test_promotion.py`) |
+| Cambios de ISR y promociones | `Controller` | `events.ndjson`, una línea JSON por evento | Solo se añade |
+| Papel de cada réplica, LEO de las seguidoras, copias pendientes | `PartitionReplica` líder | Solo en memoria | Se reinicia como seguidora; el `Controller` reasigna los papeles |
 | Pertenencia, generación y offsets de grupo | `GroupCoordinator` | Volcado a archivo tras cada commit | Pendiente de verificar |
 | Identidad del productor | No existe en el prototipo: los lotes la llevan a `-1` | — | No aplica |
 
@@ -158,9 +192,9 @@ fila no se da por cerrada sin ella.
 | Ubicación de réplicas | Recursos lógicos por nodo y actores con nombre | Ray | Un recurso lógico por nodo simulado | Pendiente | Asignación determinista frente a planificación dinámica |
 | Descubrimiento de componentes | Localización de actores por nombre | Ray | Actores `detached` registrados | Pendiente | Arranque desde semillas y metadatos servidos por el clúster |
 | Membresía y detección de fallos | Detección de muerte de procesos por el runtime | Ray | Cada réplica en un proceso distinto | Pendiente | Latidos, sesiones y criterio de sospecha |
-| Elección o promoción de líder | El `Controller` promueve una réplica tras detectar la caída | Bitácora y Ray | Sin épocas ni cercado | Pendiente | Elección entre réplicas sincronizadas con época y rechazo de líderes obsoletos |
+| Elección o promoción de líder | Quien no obtiene respuesta avisa al `Controller`, que comprueba el líder con un plazo y promueve la réplica viva del ISR con mayor LEO | Bitácora | Sin épocas ni cercado; sin latidos periódicos | `test_promotion.py`; pendiente `EXP-002` | Elección entre réplicas sincronizadas con época y rechazo de líderes obsoletos |
 | Reintento ante fallo | `max_task_retries` del actor | Ray | Se ejecutan 0 y 3 reintentos | Pendiente | Identidad de productor, secuencia y deduplicación en el líder |
-| Replicación | El líder envía el lote a las seguidoras y espera confirmación acotada | Bitácora | Replicación por *push*; `acks=all` espera a las réplicas vivas | Pendiente | Replicación por *pull*, conjunto sincronizado y límite de visibilidad |
+| Replicación | El líder envía los lotes a las seguidoras (`replicate`) y espera con `ray.wait` y un plazo; el ISR lo cambia el `Controller` a propuesta del líder | Bitácora y Ray | Replicación por *push*; `acks=all` espera a las réplicas del ISR; plazo `BITACORA_REPLICATION_TIMEOUT_MS` | `test_replication.py` | Replicación por *pull*, conjunto sincronizado y límite de visibilidad |
 | Resultado de una operación remota | Respuesta síncrona con el offset base | Ray | Sin almacén de resultados propio | Pendiente | Respuesta síncrona con el offset; sin object store |
 | Coordinación de grupos | Actor con generación; asignación `range`; offsets en archivo | Bitácora | Estado en un único actor | Pendiente | Coordinador y offsets replicados mediante consenso |
 | Serialización entre procesos | Serialización del runtime | Ray | Registros como bytes | Pendiente | Formato de cable Protobuf y formato binario en disco |
@@ -189,3 +223,6 @@ experimento pone a prueba: `verified`, `violated` o `not_evaluable`.
 | L-03 | La replicación *push* no regula el ritmo de las seguidoras | Una réplica lenta retrasa la confirmación | Documentar el plazo configurado y su efecto |
 | L-04 | Todos los nodos lógicos comparten una máquina | Los resultados cubren fallo de proceso, no de host | Declararlo en cada conclusión experimental |
 | L-05 | El estado en memoria de un actor se pierde si no se ha persistido | Pérdida de metadatos o de registros no volcados | Verificar el punto de persistencia en `EXP-002` |
+| L-06 | La caída del líder solo se detecta cuando alguien le llama y lo avisa | Una partición sin tráfico puede tener un líder caído sin que se promueva otro | Aceptado en el prototipo; la versión nativa usa latidos y sesiones |
+| L-07 | Mientras el líder espera a las seguidoras no atiende otras llamadas | Una seguidora lenta retrasa también las lecturas, hasta el plazo | Documentar el plazo configurado; medir latencias en `EXP-001` |
+| L-08 | Con `acks=1`, el HW solo avanza cuando llega otra llamada al líder | Un lote puede tardar en ser visible si no hay más tráfico | Aceptado en el prototipo |

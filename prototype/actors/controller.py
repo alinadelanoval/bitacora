@@ -10,10 +10,14 @@ el ISR de cada partición:
 
 - La líder le propone cada cambio del ISR (`alter_isr`). Solo se acepta si lo
   pide la líder actual, y se guarda antes de responder.
+- Quien no obtiene respuesta de la líder lo avisa (`report_leader_unavailable`).
+  El Controller lo comprueba él mismo, con un timeout; si la líder no responde
+  o ya no es líder, promueve a la réplica viva del ISR con mayor LEO. Nunca
+  promueve a una réplica fuera del ISR, porque podría no tener lotes confirmados.
 
 Los metadatos se guardan en `controller.json`, de forma atómica, para que el
-Controller los recupere si su proceso se reinicia. Cada cambio de ISR se
-añade, como una línea JSON, a `events.ndjson`.
+Controller los recupere si su proceso se reinicia. Cada cambio de ISR y cada
+promoción se añaden, como una línea JSON, a `events.ndjson`.
 """
 
 import json
@@ -23,10 +27,11 @@ from datetime import datetime, timezone
 
 import ray
 
-from prototype.actors.partition_replica import PartitionReplicaActor, replica_actor_name
+from prototype.actors.partition_replica import LEADER, PartitionReplicaActor, replica_actor_name
 from prototype.config import NAMESPACE, Config
 from prototype.errors import (
     InvalidReplicationFactor,
+    RequestTimedOut,
     TopicAlreadyExists,
     UnknownTopicOrPartition,
 )
@@ -158,6 +163,80 @@ class Controller:
             )
         return True
 
+    # --- Promoción ------------------------------------------------------------------
+
+    def report_leader_unavailable(self, topic: str, partition: int) -> str | None:
+        """Comprueba la líder de una partición y, si no responde, promueve a otra.
+
+        Devuelve el nodo de la líder vigente, o None si ninguna réplica del ISR
+        responde (la partición queda sin líder hasta que alguna vuelva).
+        """
+        info = self.describe_topic(topic)
+        if partition not in info.leaders:
+            raise UnknownTopicOrPartition(topic, partition)
+        old = info.leaders[partition]
+
+        statuses = self._statuses(topic, partition, info.isr[partition])
+        if statuses.get(old, {}).get("role") == LEADER:
+            return old                      # la líder responde: no se cambia nada
+        if not statuses:
+            return None
+
+        # La de mayor LEO; si empatan, mejor una distinta de la líder anterior,
+        # y después el orden del anillo.
+        order = info.assignment[partition]
+        new = max(statuses, key=lambda n: (statuses[n]["leo"], n != old, -order.index(n)))
+        new_isr = sorted(statuses)          # las del ISR que han respondido
+        followers = [n for n in order if n != new]
+
+        # Se guarda antes de avisar a las réplicas, como en create_topic.
+        self._topics[topic] = replace(
+            info,
+            leaders={**info.leaders, partition: new},
+            isr={**info.isr, partition: new_isr},
+        )
+        self._save_metadata()
+        self._record_event(
+            "leader_change", topic=topic, partition=partition, old_leader=old, leader=new,
+            isr=new_isr, leos={n: s["leo"] for n, s in sorted(statuses.items())},
+        )
+
+        try:
+            ray.get(
+                self._replica(topic, partition, new).become_leader.remote(followers, new_isr, self._name),
+                timeout=self._config.replication_timeout,
+            )
+        except (ray.exceptions.GetTimeoutError, ray.exceptions.RayActorError):
+            raise RequestTimedOut(f"{new} no confirmó que es líder de {topic}-{partition}") from None
+        for node in followers:
+            try:
+                # Sin esperar: la líder anterior puede estar ocupada o caída.
+                self._replica(topic, partition, node).become_follower.remote()
+            except ValueError:
+                pass
+        return new
+
+    def _statuses(self, topic: str, partition: int, nodes: list[str]) -> dict[str, dict]:
+        """Pide su estado a cada réplica, a la vez, y devuelve el de las que responden a tiempo."""
+        calls = {}
+        for node in nodes:
+            try:
+                calls[node] = self._replica(topic, partition, node).status.remote()
+            except ValueError:
+                pass                        # no existe ningún actor con ese nombre
+        if not calls:
+            return {}
+        refs = list(calls.values())
+        ready, _ = ray.wait(refs, num_returns=len(refs), timeout=self._config.replication_timeout)
+        result = {}
+        for node, ref in calls.items():
+            if ref in ready:
+                try:
+                    result[node] = ray.get(ref)
+                except ray.exceptions.RayActorError:
+                    pass                    # murió mientras respondía
+        return result
+
     # --- Réplicas ---------------------------------------------------------------
 
     def _start_replica(self, topic: str, partition: int, node: str):
@@ -171,6 +250,9 @@ class Controller:
             get_if_exists=True,
             resources={f"node:{node}": 0.01},
         ).remote(topic, partition, node, self._config)
+
+    def _replica(self, topic: str, partition: int, node: str):
+        return ray.get_actor(replica_actor_name(topic, partition, node), namespace=NAMESPACE)
 
     # --- Eventos ------------------------------------------------------------------
 
