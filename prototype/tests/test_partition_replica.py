@@ -22,7 +22,10 @@ LOTES = [make_batch([b"a", b"b"]), make_batch([b"c", b"d", b"e"]), make_batch([b
 
 
 def new_replica(config) -> PartitionReplica:
-    return PartitionReplica("pedidos", 0, "n1", config)
+    """Réplica líder sin seguidoras: el papel que le daría el Controller con un factor de replicación 1."""
+    replica = PartitionReplica("pedidos", 0, "n1", config)
+    replica.become_leader([], ["n1"], None)
+    return replica
 
 
 def fill(replica: PartitionReplica) -> list[int]:
@@ -177,6 +180,7 @@ def test_actor_recovers_its_log_after_kill_9(config, topic, detached_actors):
     actor = PartitionReplicaActor.options(
         name=name, lifetime="detached", resources={"node:n1": 0.01}
     ).remote(topic, 0, "n1", config)
+    ray.get(actor.become_leader.remote([], ["n1"], None))
     assert [ray.get(actor.append.remote(lote)) for lote in LOTES] == [0, 2, 5]
     before = ray.get(actor.read.remote(0, 10_000))
 
@@ -184,6 +188,9 @@ def test_actor_recovers_its_log_after_kill_9(config, topic, detached_actors):
     os.kill(pid, signal.SIGKILL)
     wait_for_restart(actor, pid)
 
+    # Ray la reinicia como seguidora; el Controller volvería a hacerla líder.
+    assert ray.get(actor.status.remote())["role"] == "follower"
+    ray.get(actor.become_leader.remote([], ["n1"], None))
     assert ray.get(actor.log_end_offset.remote()) == 9
     assert ray.get(actor.read.remote(0, 10_000)) == before
     assert ray.get(actor.append.remote(LOTES[0])) == 9
@@ -193,6 +200,7 @@ def test_errors_reach_the_caller_with_their_class(config, topic, detached_actors
     name = f"{topic}-0-n1"
     detached_actors.append(name)
     actor = PartitionReplicaActor.options(name=name, lifetime="detached").remote(topic, 0, "n1", config)
+    ray.get(actor.become_leader.remote([], ["n1"], None))
     with pytest.raises(OffsetOutOfRange) as caught:
         ray.get(actor.read.remote(5, 100))
     assert (caught.value.code, caught.value.offset, caught.value.log_end_offset) == (4, 5, 0)
