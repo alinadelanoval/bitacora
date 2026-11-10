@@ -3,6 +3,9 @@
 /dist/
 *.test
 coverage.out
+# Binaries left by `go build ./cmd/...` at the repository root
+/bitacora
+/bitacorad
 
 # Python
 __pycache__/
