@@ -19,6 +19,33 @@ class BitacoraError(Exception):
     code: int | None = None
 
 
+class NotLeader(BitacoraError):
+    """La réplica que recibe la llamada no es la líder de su partición."""
+
+    code = 1  # ERROR_CODE_NOT_LEADER
+
+    def __init__(self, topic: str, partition: int, replica: str | None):
+        super().__init__(topic, partition, replica)
+        self.topic = topic
+        self.partition = partition
+        self.replica = replica
+
+    def __str__(self) -> str:
+        if self.replica is None:
+            return f"{self.topic}-{self.partition} no tiene líder disponible"
+        return f"{self.replica} no es líder de {self.topic}-{self.partition}"
+
+
+class RequestTimedOut(BitacoraError):
+    """La operación no terminó en su plazo; puede haber tenido efecto o no."""
+
+    code = 12  # ERROR_CODE_REQUEST_TIMED_OUT
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
 class CorruptBatch(BitacoraError):
     """Lote dañado: magic distinto de 2, longitud incoherente o CRC incorrecto."""
 

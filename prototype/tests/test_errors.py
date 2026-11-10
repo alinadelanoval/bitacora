@@ -9,7 +9,9 @@ from prototype.errors import (
     CorruptBatch,
     InvalidBatch,
     InvalidReplicationFactor,
+    NotLeader,
     OffsetOutOfRange,
+    RequestTimedOut,
     StorageFailure,
     TopicAlreadyExists,
     UnknownTopicOrPartition,
@@ -23,6 +25,9 @@ ALL_ERRORS = [
     (TopicAlreadyExists("pedidos"), 17),
     (InvalidReplicationFactor(4), 13),
     (StorageFailure("disco lleno"), None),
+    (NotLeader("pedidos", 0, "n2"), 1),
+    (NotLeader("pedidos", 0, None), 1),
+    (RequestTimedOut("el Controller no respondió"), 12),
 ]
 
 
