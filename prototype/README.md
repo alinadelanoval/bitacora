@@ -99,9 +99,12 @@ Los nombres de tema y de grupo solo admiten letras ASCII, dígitos, `.`, `_` y
 ## Pruebas
 
 `make python-test`. Las pruebas usan un nodo Ray con los recursos
-`node:n1..n3`, salvo `test_multinode.py`, que arranca en un proceso aparte un
-clúster de tres nodos Ray en la misma máquina (requiere `RAY_AUTH_MODE=token`,
-que la prueba fija).
+`node:n1..n3`, salvo `test_multinode.py` y `test_three_nodes.py`, que arrancan
+en un proceso aparte un clúster de tres nodos Ray en la misma máquina (requiere
+`RAY_AUTH_MODE=token`, que la prueba fija). `test_three_nodes.py` repite en ese
+clúster la replicación con acks=all, la salida y vuelta al ISR, la promoción
+tras la muerte de la líder, el reparto de un grupo, el rechazo de una época
+antigua y la reanudación desde el offset confirmado tras matar al coordinador.
 
 Cobertura, también dentro de los procesos de los actores:
 
