@@ -175,6 +175,8 @@ de líder.
 | Cambios de ISR y promociones | `Controller` | `events.ndjson`, una línea JSON por evento | Solo se añade |
 | Papel de cada réplica, LEO de las seguidoras, copias pendientes | `PartitionReplica` líder | Solo en memoria | Se reinicia como seguidora; el `Controller` reasigna los papeles |
 | Época, miembros, asignación actual y offsets de cada grupo | `GroupCoordinator` de su fragmento | `group-{id}.json`, escrito de forma atómica antes de responder a cualquier cambio | Se recupera tras `kill -9`; las sesiones vuelven a contar desde el reinicio (`test_group_coordinator.py`) |
+| Transiciones de los grupos | `GroupCoordinator` de su fragmento | `group-events-{fragmento}.ndjson`, una línea JSON por evento, escrita después de guardar el grupo | Solo se añade |
+| Contadores de latidos, commits, expulsiones y rechazos | `GroupCoordinator` de su fragmento | Solo en memoria (`metrics()`) | Vuelven a cero |
 | Identidad del productor | No existe en el prototipo: los lotes la llevan a `-1` | — | No aplica |
 
 ## 5. Mapa de dependencias del middleware

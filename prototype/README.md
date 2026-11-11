@@ -12,6 +12,7 @@ prototype/
 ├── batch.py                   Cabecera del lote: lectura, validación, baseOffset y CRC-32C
 ├── config.py                  Carpeta de datos, fsync y plazos
 ├── names.py                   Reglas de nombres de tema y de grupo
+├── events.py                  Registro de transiciones en NDJSON
 ├── range_strategy.py          Asignación range de particiones a miembros
 ├── actors/
 │   ├── partition_replica.py   Réplica de una partición: log, archivo propio y replicación
@@ -72,6 +73,16 @@ cada partición, y añade a `events.ndjson` una línea JSON por cada cambio de I
 (`isr_change`) y cada promoción (`leader_change`). Cada grupo se guarda en
 `group-{id}.json` (época, miembros, asignación actual, particiones pendientes de
 dejar y offsets), de forma atómica, antes de responder a cualquier cambio.
+
+Cada coordinador de grupos añade a `group-events-{fragmento}.ndjson`, después
+de guardar el grupo, una línea por transición: `coordinator_started`,
+`member_joined`, `member_rejoined`, `subscription_changed`,
+`revocation_requested`, `partitions_released`, `member_reconciled`,
+`member_left` y `member_expelled` (con `reason`: `session_timeout` o
+`rebalance_timeout`). Todas las líneas llevan `ts` (UTC), `event`, y en las de
+grupo `group_id`, `group_epoch` y `member_id`. `metrics()` devuelve contadores
+en memoria (latidos, commits, expulsiones y rechazos por tipo de error) y la
+época y el tamaño de cada grupo; vuelven a cero si el proceso se reinicia.
 
 Los nombres de tema y de grupo solo admiten letras ASCII, dígitos, `.`, `_` y
 `-`, y no pueden ser `.` ni `..`: forman parte de nombres de archivo.

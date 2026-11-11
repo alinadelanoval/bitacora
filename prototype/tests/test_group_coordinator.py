@@ -19,6 +19,7 @@ from prototype.actors.group_coordinator import (
     SHARDS,
     GroupCoordinator,
     coordinator_name,
+    events_file_name,
     get_group_coordinator,
     group_file_name,
     shard_for,
@@ -276,6 +277,56 @@ def test_each_shard_loads_only_its_groups(config, clock):
     GroupCoordinator(1, config, partition_counts=PARTITIONS, clock=clock).heartbeat(other, "c1", 0, ["pedidos"], [])
     assert set(GroupCoordinator(0, config, partition_counts=PARTITIONS, clock=clock).groups) == {GROUP}
     assert set(GroupCoordinator(1, config, partition_counts=PARTITIONS, clock=clock).groups) == {other}
+
+
+# --- Registro de transiciones y métricas ----------------------------------------------------
+
+def read_events(config, shard=0):
+    lines = (config.data_dir / events_file_name(shard)).read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines]
+
+
+def test_transitions_are_recorded_in_order(config, clock, coordinator):
+    c1 = GroupMember(coordinator, GROUP, "c1", ["pedidos"])
+    c2 = GroupMember(coordinator, GROUP, "c2", ["pedidos"])
+    c1.enter(); c2.enter()
+    c1.beat(); c1.beat(); c2.beat()                   # c1 deja p2 y c2 la recibe
+    clock.advance(6); c2.beat()
+    clock.advance(6); c2.beat()                       # c1 lleva 12 s sin latir: sale
+    c2.leave()
+
+    events = read_events(config)
+    assert [(e["event"], e.get("member_id")) for e in events] == [
+        ("coordinator_started", None),
+        ("member_joined", "c1"), ("member_reconciled", "c1"),
+        ("member_joined", "c2"), ("member_reconciled", "c2"),   # época 2, p2 pendiente
+        ("revocation_requested", "c1"),
+        ("partitions_released", "c1"), ("member_reconciled", "c1"),
+        ("member_reconciled", "c2"),
+        ("member_expelled", "c1"), ("member_reconciled", "c2"),
+        ("member_left", "c2"),
+    ]
+    by_name = {(e["event"], e.get("member_id")): e for e in events}
+    assert by_name[("revocation_requested", "c1")]["partitions"] == [list(P2)]
+    assert by_name[("member_reconciled", "c2")]["added"] == [list(P0), list(P1)]
+    assert by_name[("member_expelled", "c1")]["reason"] == "session_timeout"
+    assert by_name[("member_left", "c2")]["group_epoch"] == 4
+    assert all(e["ts"].endswith("Z") for e in events)
+
+
+def test_metrics_count_operations_and_rejections(coordinator):
+    c1 = GroupMember(coordinator, GROUP, "c1", ["pedidos"])
+    c1.enter(); c1.beat()
+    c1.process(P0, 5); c1.commit([P0])
+    with pytest.raises(IllegalGeneration):
+        coordinator.commit(GROUP, "c1", 99, [("pedidos", 0, 6)])
+    with pytest.raises(UnknownMember):
+        coordinator.heartbeat(GROUP, "nadie", 3, [], [])
+
+    metrics = coordinator.metrics()
+    assert (metrics["heartbeats"], metrics["commits"], metrics["expelled"]) == (3, 2, 0)
+    assert metrics["rejected"] == {"IllegalGeneration": 1, "UnknownMember": 1}
+    assert metrics["groups"] == {GROUP: {"group_epoch": 1, "members": 1}}
 
 
 # --- Con Ray: actores, Controller, despertador y kill -9 ------------------------------------

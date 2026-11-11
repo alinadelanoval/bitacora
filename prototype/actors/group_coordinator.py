@@ -27,6 +27,12 @@ Persistencia. Cada grupo se guarda en `group-<id>.json`, de forma atómica,
 antes de responder a cualquier llamada que lo cambie. No se guardan los
 instantes del reloj monotónico, que no tienen sentido en otro proceso: tras un
 reinicio, las sesiones y los plazos de revocación vuelven a contar desde cero.
+
+Observabilidad. Cada transición (entrar, salir, expulsar, pedir que se deje
+algo, completar la reconciliación) se añade a `group-events-<fragmento>.ndjson`
+después de guardar el grupo, de modo que el registro nunca muestra un cambio
+que no llegó al disco. `metrics()` devuelve contadores en memoria, que vuelven
+a cero si el proceso se reinicia.
 """
 
 import json
@@ -34,6 +40,7 @@ import os
 import threading
 import time
 import zlib
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,12 +50,14 @@ from ray.exceptions import GetTimeoutError, RayActorError
 from prototype.actors.controller import CONTROLLER_NAME
 from prototype.config import NAMESPACE, Config
 from prototype.errors import (
+    BitacoraError,
     IllegalGeneration,
     InvalidRequest,
     RequestTimedOut,
     UnknownMember,
     UnknownTopicOrPartition,
 )
+from prototype.events import append_event
 from prototype.names import validate_group_id, validate_topic_name
 from prototype.range_strategy import assign
 
@@ -72,6 +81,10 @@ def coordinator_name(shard: int, prefix: str = COORDINATOR_PREFIX) -> str:
 
 def group_file_name(group_id: str) -> str:
     return f"group-{group_id}.json"
+
+
+def events_file_name(shard: int) -> str:
+    return f"group-events-{shard}.ndjson"
 
 
 # --- Estado -------------------------------------------------------------------
@@ -126,7 +139,13 @@ class GroupCoordinator:
         self._fixed_partitions = partition_counts
         self._partition_cache: dict[str, int] = {}
         self._clock = clock
+        self._events_path = self._dir / events_file_name(shard)
+        self._pending_events: list[tuple[str, dict]] = []   # se escriben tras guardar
+        self._counts: Counter = Counter()                   # latidos, commits, expulsiones
+        self._rejected: Counter = Counter()                 # errores devueltos, por tipo
         self.groups: dict[str, Group] = self._load()
+        append_event(self._events_path, "coordinator_started", fsync=config.fsync_per_batch,
+                     shard=shard, groups=sorted(self.groups))
 
         if start_alarm:
             # El handle de este mismo actor: el despertador lo usa para dejar
@@ -145,6 +164,10 @@ class GroupCoordinator:
     def heartbeat(self, group_id: str, member_id: str, member_epoch: int,
                   topics: list[str] | None = None, owned: list[TopicPartition] | None = None) -> dict:
         """Entrar (época 0), latir (época vigente) o salir (época -1)."""
+        self._counts["heartbeats"] += 1
+        return self._counted(self._heartbeat, group_id, member_id, member_epoch, topics, owned)
+
+    def _heartbeat(self, group_id, member_id, member_epoch, topics, owned) -> dict:
         self.expire()
         self._check_group_id(group_id)
         if not isinstance(member_id, str) or member_id == "":
@@ -167,6 +190,10 @@ class GroupCoordinator:
     def commit(self, group_id: str, member_id: str, member_epoch: int,
                offsets: list[tuple[str, int, int]]) -> None:
         """Apunta el siguiente offset a leer de cada partición; nunca retrocede."""
+        self._counts["commits"] += 1
+        return self._counted(self._commit, group_id, member_id, member_epoch, offsets)
+
+    def _commit(self, group_id, member_id, member_epoch, offsets) -> None:
         self.expire()
         self._check_group_id(group_id)
         group = self.groups.get(group_id)
@@ -204,6 +231,12 @@ class GroupCoordinator:
                 del group.members[m.member_id]       # sus particiones quedan libres
             if gone:
                 self._new_epoch(group)
+                for m in gone:
+                    reason = ("session_timeout" if now - m.last_seen > self._config.group_session_timeout
+                              else "rebalance_timeout")
+                    self._counts["expelled"] += 1
+                    self._event("member_expelled", group, m.member_id, reason=reason,
+                                partitions=sorted(m.current))
                 self._save(group)
 
     def describe(self, group_id: str) -> dict:
@@ -219,6 +252,26 @@ class GroupCoordinator:
             "offsets": dict(group.offsets),
         }
 
+    def metrics(self) -> dict:
+        """Contadores desde que arrancó este proceso y tamaño actual de los grupos."""
+        return {
+            "shard": self._shard,
+            "heartbeats": self._counts["heartbeats"],
+            "commits": self._counts["commits"],
+            "expelled": self._counts["expelled"],
+            "rejected": dict(self._rejected),
+            "groups": {g.group_id: {"group_epoch": g.epoch, "members": len(g.members)}
+                       for g in self.groups.values()},
+        }
+
+    def _counted(self, operation, *args):
+        """Ejecuta una operación y cuenta, por tipo, los errores que devuelve."""
+        try:
+            return operation(*args)
+        except BitacoraError as error:
+            self._rejected[type(error).__name__] += 1
+            raise
+
     # --- Entrar, latir y salir ----------------------------------------------------
 
     def _enter(self, group_id: str, member_id: str, topics: list[str]) -> dict:
@@ -230,6 +283,7 @@ class GroupCoordinator:
             member = Member(member_id, topics)
             group.members[member_id] = member
             self._new_epoch(group)
+            self._event("member_joined", group, member_id, topics=topics)
         else:                                        # vuelve a entrar: ha dejado todo
             member.current.clear()
             member.revoking.clear()
@@ -237,6 +291,7 @@ class GroupCoordinator:
             if member.topics != topics:
                 member.topics = topics
                 self._new_epoch(group)
+            self._event("member_rejoined", group, member_id, topics=topics)
         member.last_seen = self._clock()
         response = self._reconcile(group, member)
         self._save(group)
@@ -256,6 +311,7 @@ class GroupCoordinator:
                 self._partitions(topic)
             member.topics = topics
             self._new_epoch(group)
+            self._event("subscription_changed", group, member_id, topics=topics)
             changed = True
         self._target(group)                          # puede preguntar al Controller: antes de tocar nada
         member.last_seen = self._clock()
@@ -264,6 +320,7 @@ class GroupCoordinator:
         if released:
             member.current -= released
             member.revoking -= released
+            self._event("partitions_released", group, member_id, partitions=sorted(released))
             changed = True
         before = (member.epoch, frozenset(member.current), frozenset(member.revoking))
         response = self._reconcile(group, member)
@@ -276,6 +333,7 @@ class GroupCoordinator:
         if group is not None and member_id in group.members:   # salir dos veces: también OK
             del group.members[member_id]
             self._new_epoch(group)
+            self._event("member_left", group, member_id)
             self._save(group)
         return self._response(group, LEAVE, [], [])
 
@@ -288,14 +346,20 @@ class GroupCoordinator:
             if member.revoking != extra:
                 member.revoking = set(extra)
                 member.revoke_since = self._clock()
+                self._event("revocation_requested", group, member.member_id, partitions=sorted(extra))
             usable = member.current - extra
         else:
             # Ya no le sobra nada: llega a la época del grupo y recibe lo libre.
             member.revoking.clear()
             member.revoke_since = None
+            reached = member.epoch != group.epoch
             member.epoch = group.epoch
             free = {tp for tp in target - member.current if not group.owned_by_other(tp, member.member_id)}
             member.current |= free
+            if reached or free:
+                self._event("member_reconciled", group, member.member_id, member_epoch=member.epoch,
+                            added=sorted(free), assignment=sorted(member.current),
+                            pending=sorted(target - member.current))
             usable = member.current
         return self._response(group, member.epoch, sorted(usable), sorted(target - usable))
 
@@ -337,6 +401,13 @@ class GroupCoordinator:
         self._partition_cache[topic] = info.partitions
         return info.partitions
 
+    # --- Eventos ---------------------------------------------------------------------
+
+    def _event(self, event: str, group: Group, member_id: str, **fields) -> None:
+        """Anota una transición; se escribe en `_save`, después de guardar el grupo."""
+        self._pending_events.append(
+            (event, {"group_id": group.group_id, "group_epoch": group.epoch, "member_id": member_id, **fields}))
+
     # --- Validación -----------------------------------------------------------------
 
     def _check_group_id(self, group_id: str) -> None:
@@ -365,6 +436,9 @@ class GroupCoordinator:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
+        for event, fields in self._pending_events:
+            append_event(self._events_path, event, fsync=self._config.fsync_per_batch, **fields)
+        self._pending_events.clear()
 
     def _load(self) -> dict[str, Group]:
         """Lee los archivos de los grupos de este fragmento.
