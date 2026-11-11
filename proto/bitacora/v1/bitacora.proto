@@ -11,9 +11,7 @@ service Log {
 }
 
 service Groups {
-  rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
-  rpc LeaveGroup(LeaveGroupRequest) returns (LeaveGroupResponse);
   rpc CommitOffsets(CommitOffsetsRequest) returns (CommitOffsetsResponse);
   rpc FetchCommittedOffsets(FetchCommittedOffsetsRequest) returns (FetchCommittedOffsetsResponse);
 }
@@ -150,42 +148,30 @@ message ListOffsetsResponse {
   int64 offset = 2;
 }
 
-message JoinGroupRequest {
-  string group_id = 1;
-  string member_id = 2;
-  repeated string topics = 3;
-  int32 session_timeout_ms = 4;
-}
-
 message Assignment {
   repeated TopicPartition partitions = 1;
-}
-
-message JoinGroupResponse {
-  ErrorCode error = 1;
-  string member_id = 2;
-  int32 generation = 3;
-  Assignment assignment = 4;
 }
 
 message HeartbeatRequest {
   string group_id = 1;
   string member_id = 2;
-  int32 generation = 3;
+  // 0: join or rejoin without partitions; -1: leave; positive: current member epoch.
+  int32 member_epoch = 3;
+  // Required when joining; empty otherwise means no change.
+  repeated string topics = 4;
+  // Every partition the member owns at the time of the request.
+  repeated TopicPartition owned_partitions = 5;
 }
 
 message HeartbeatResponse {
   ErrorCode error = 1;
-}
-
-message LeaveGroupRequest {
-  string group_id = 1;
-  string member_id = 2;
-  int32 generation = 3;
-}
-
-message LeaveGroupResponse {
-  ErrorCode error = 1;
+  int32 member_epoch = 2;
+  int32 heartbeat_interval_ms = 3;
+  // Partitions the member may use now; it must release any other partition it owns.
+  Assignment assignment = 4;
+  // Partitions assigned to the member that another member has not released yet.
+  Assignment pending = 5;
+  int32 group_epoch = 6;
 }
 
 message OffsetCommit {
@@ -196,7 +182,7 @@ message OffsetCommit {
 message CommitOffsetsRequest {
   string group_id = 1;
   string member_id = 2;
-  int32 generation = 3;
+  int32 member_epoch = 3;
   repeated OffsetCommit offsets = 4;
 }
 
