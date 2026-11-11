@@ -1,5 +1,18 @@
 ai_use:
   used: true
-  tools: []
-  activities: []
-  verification: []
+  tools:
+    - Claude Code (Anthropic)
+  activities:
+    - architecture discussion
+    - design proposals and trade-off analysis
+    - contract and ADR drafting
+    - implementation
+    - test generation
+    - debugging
+    - documentation
+    - pull request descriptions and defense notes
+  verification:
+    - public tests (make verify, CI)
+    - repeated runs of timing-dependent tests
+    - experiments with Ray
+    - checks against primary sources (Kafka, Ray and course documentation)
