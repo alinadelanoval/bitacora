@@ -23,7 +23,6 @@ promoción se añaden, como una línea JSON, a `events.ndjson`.
 import json
 import os
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 
 import ray
 
@@ -36,6 +35,7 @@ from prototype.errors import (
     TopicAlreadyExists,
     UnknownTopicOrPartition,
 )
+from prototype.events import append_event
 from prototype.names import validate_topic_name
 
 CONTROLLER_NAME = "controller"
@@ -265,13 +265,7 @@ class Controller:
 
     def _record_event(self, event: str, **fields) -> None:
         """Añade una línea JSON a events.ndjson con la hora UTC y los datos del evento."""
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        line = json.dumps({"ts": timestamp, "event": event, **fields}, ensure_ascii=False)
-        with open(self._events_path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-            f.flush()
-            if self._config.fsync_per_batch:
-                os.fsync(f.fileno())
+        append_event(self._events_path, event, fsync=self._config.fsync_per_batch, **fields)
 
     # --- Metadatos ------------------------------------------------------------
 

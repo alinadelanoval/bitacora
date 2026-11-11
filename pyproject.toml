@@ -14,9 +14,24 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "coverage==7.17.2",
     "grpcio-tools==1.84.1",
     "pytest==9.1.1",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["prototype/tests"]
+
+[tool.coverage.run]
+source = ["prototype"]
+omit = ["prototype/tests/*"]
+# Los actores de Ray corren en otros procesos. «subprocess» propaga la
+# medición a los procesos que arranca Ray, y «sigterm» guarda los datos de
+# los que Ray termina con SIGTERM. Un proceso terminado con SIGKILL
+# (ray.kill) no guarda nada.
+patch = ["subprocess"]
+sigterm = true
+
+[tool.coverage.report]
+show_missing = false
+skip_empty = true

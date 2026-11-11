@@ -12,6 +12,7 @@ prototype/
 ├── batch.py                   Cabecera del lote: lectura, validación, baseOffset y CRC-32C
 ├── config.py                  Carpeta de datos, fsync y plazos
 ├── names.py                   Reglas de nombres de tema y de grupo
+├── events.py                  Registro de transiciones en NDJSON
 ├── range_strategy.py          Asignación range de particiones a miembros
 ├── actors/
 │   ├── partition_replica.py   Réplica de una partición: log, archivo propio y replicación
@@ -73,6 +74,16 @@ cada partición, y añade a `events.ndjson` una línea JSON por cada cambio de I
 `group-{id}.json` (época, miembros, asignación actual, particiones pendientes de
 dejar y offsets), de forma atómica, antes de responder a cualquier cambio.
 
+Cada coordinador de grupos añade a `group-events-{fragmento}.ndjson`, después
+de guardar el grupo, una línea por transición: `coordinator_started`,
+`member_joined`, `member_rejoined`, `subscription_changed`,
+`revocation_requested`, `partitions_released`, `member_reconciled`,
+`member_left` y `member_expelled` (con `reason`: `session_timeout` o
+`rebalance_timeout`). Todas las líneas llevan `ts` (UTC), `event`, y en las de
+grupo `group_id`, `group_epoch` y `member_id`. `metrics()` devuelve contadores
+en memoria (latidos, commits, expulsiones y rechazos por tipo de error) y la
+época y el tamaño de cada grupo; vuelven a cero si el proceso se reinicia.
+
 Los nombres de tema y de grupo solo admiten letras ASCII, dígitos, `.`, `_` y
 `-`, y no pueden ser `.` ni `..`: forman parte de nombres de archivo.
 
@@ -88,9 +99,26 @@ Los nombres de tema y de grupo solo admiten letras ASCII, dígitos, `.`, `_` y
 ## Pruebas
 
 `make python-test`. Las pruebas usan un nodo Ray con los recursos
-`node:n1..n3`, salvo `test_multinode.py`, que arranca en un proceso aparte un
-clúster de tres nodos Ray en la misma máquina (requiere `RAY_AUTH_MODE=token`,
-que la prueba fija).
+`node:n1..n3`, salvo `test_multinode.py` y `test_three_nodes.py`, que arrancan
+en un proceso aparte un clúster de tres nodos Ray en la misma máquina (requiere
+`RAY_AUTH_MODE=token`, que la prueba fija). `test_three_nodes.py` repite en ese
+clúster la replicación con acks=all, la salida y vuelta al ISR, la promoción
+tras la muerte de la líder, el reparto de un grupo, el rechazo de una época
+antigua y la reanudación desde el offset confirmado tras matar al coordinador.
+
+Cobertura, también dentro de los procesos de los actores:
+
+```sh
+python -m coverage run -m pytest prototype/
+python -m coverage combine
+python -m coverage report
+```
+
+La configuración (`[tool.coverage.*]` en `pyproject.toml`) propaga la medición
+a los procesos que arranca Ray. Un proceso solo guarda sus datos si termina de
+forma ordenada; por eso las pruebas terminan los actores con
+`__ray_terminate__` en lugar de `ray.kill`. Los procesos que una prueba mata
+con `SIGKILL` no aportan datos.
 
 Registrar en la sección «Fase 1: prototipo con Ray» de `docs/architecture.md`
 únicamente capacidades de Ray observadas. No usar Ray como dependencia runtime
