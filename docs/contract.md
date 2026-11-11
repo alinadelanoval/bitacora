@@ -29,7 +29,9 @@ especifica la semántica de sus operaciones.
   clientes y las pruebas afectadas.
 - **Decisiones relacionadas:**
   [ADR-001](decisions/ADR-001-formato-de-lote-en-el-contrato.md), formato de
-  lote.
+  lote;
+  [ADR-002](decisions/ADR-002-reconciliacion-incremental-de-grupos.md),
+  reconciliación incremental de grupos.
 
 ## Perfiles de conformidad
 
@@ -56,7 +58,7 @@ implementación del perfil básico; nunca como superadas.
 | `Produce` | Básico; deduplicación y mínimo de réplicas: completo | pendiente | pendiente | pendiente |
 | `Fetch` | Básico | pendiente | pendiente | pendiente |
 | `ListOffsets` | Básico | pendiente | pendiente | pendiente |
-| `JoinGroup`, `Heartbeat`, `LeaveGroup` | Básico | pendiente | pendiente | pendiente |
+| `Heartbeat` | Básico | pendiente | pendiente | pendiente |
 | `CommitOffsets`, `FetchCommittedOffsets` | Básico | pendiente | pendiente | pendiente |
 | `GetMetadata`, `CreateTopic` | Básico; épocas e ISR: completo | pendiente | pendiente | pendiente |
 | `InitProducerId` | Completo | `UNIMPLEMENTED` | pendiente | pendiente |
@@ -77,13 +79,11 @@ implementadas.
 | `Produce` | Tema y partición existentes; `partition` presente; `acks` especificado; `timeout_ms > 0`; lote válido | Offset del primer registro del lote; `-1` con `ACKS_NONE` | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `CORRUPT_MESSAGE`, `NOT_LEADER`, `REQUEST_TIMED_OUT`; perfil completo: `NOT_ENOUGH_REPLICAS`, `FENCED_LEADER_EPOCH`, `OUT_OF_ORDER_SEQUENCE`, `DUPLICATE_SEQUENCE` | Con identidad de productor (perfil completo), sin duplicar. Sin identidad, puede duplicar | Cuando el high watermark cubre el lote |
 | `Fetch` | Tema y partición existentes; `partition` presente; `max_bytes > 0` | Lotes desde el que contiene `offset`, por debajo del high watermark | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `OFFSET_OUT_OF_RANGE`, `NOT_LEADER` | Sí | — |
 | `ListOffsets` | Partición existente; posición especificada | Primer offset disponible, high watermark o primer offset con timestamp igual o posterior al pedido; `-1` si no existe | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST` | Sí | — |
-| `JoinGroup` | `member_id` no vacío | Generación y asignación vigentes | `INVALID_REQUEST`, `REBALANCE_IN_PROGRESS` | Sí, con el mismo `member_id` | En la asignación del grupo |
-| `Heartbeat` | Miembro y generación vigentes | Latido aceptado | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION`, `REBALANCE_IN_PROGRESS` | Sí | — |
-| `LeaveGroup` | — | El miembro deja el grupo | — | Sí | El grupo se reequilibra |
-| `CommitOffsets` | Miembro y generación vigentes | Por partición, el mayor entre el offset confirmado y el pedido | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION` | Sí | En `FetchCommittedOffsets` |
+| `Heartbeat` | `group_id` y `member_id` válidos; `member_epoch ≥ -1`; al entrar, al menos un tema válido | Época del miembro, intervalo de latido, asignación utilizable y pendiente, época del grupo | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION`, `INVALID_REQUEST` | Sí, con el mismo `member_id` | En la asignación del miembro |
+| `CommitOffsets` | Miembro y época de miembro vigentes; particiones asignadas al miembro | Por partición, el mayor entre el offset confirmado y el pedido | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION`, `INVALID_REQUEST` | Sí | En `FetchCommittedOffsets` |
 | `FetchCommittedOffsets` | — | Offset confirmado por partición; las particiones sin commit no aparecen | `INVALID_REQUEST` | Sí | — |
 | `GetMetadata` | — | Líder, época, réplicas e ISR por partición | `UNKNOWN_TOPIC_OR_PARTITION` | Sí | — |
-| `CreateTopic` | Nombre no vacío; `partitions ≥ 1`; factor de replicación válido | Metadatos del tema | `TOPIC_ALREADY_EXISTS`, `INVALID_REPLICATION_FACTOR`, `INVALID_REQUEST` | Sí, con el mismo `request_id` | En `GetMetadata` |
+| `CreateTopic` | Nombre válido (ver «Nombres»); `partitions ≥ 1`; factor de replicación válido | Metadatos del tema | `TOPIC_ALREADY_EXISTS`, `INVALID_REPLICATION_FACTOR`, `INVALID_REQUEST` | Sí, con el mismo `request_id` | En `GetMetadata` |
 | `InitProducerId` | Perfil completo | Identidad y época del productor | — | Sí, con el mismo `request_id` | — |
 | `ResetGroupOffsets` | Grupo vacío | Nuevas posiciones de lectura | `GROUP_NOT_EMPTY`, `INVALID_REQUEST` | Sí, con el mismo `request_id` y posiciones | En `FetchCommittedOffsets` |
 
@@ -153,6 +153,16 @@ El servidor debe rechazar el lote sin escribir ningún registro cuando:
 - El offset confirmado de un grupo es la siguiente posición que el grupo debe
   leer. Confirmarlo no modifica el log.
 
+### Nombres
+
+Los nombres de tema y los identificadores de grupo solo pueden contener letras
+ASCII, dígitos, `.`, `_` y `-`, y no pueden ser `.` ni `..`. Un nombre de tema
+tiene como máximo 249 caracteres; un `group_id`, como máximo 64. Un nombre que
+no cumpla estas reglas se rechaza con `ERROR_CODE_INVALID_REQUEST`. Ninguno
+puede contener un separador de rutas, de modo que una implementación puede
+usarlos para nombrar archivos o directorios sin riesgo de salir de su
+directorio de datos.
+
 ## Escritura
 
 | `acks` | Respuesta |
@@ -185,21 +195,46 @@ indica el final del tema.
 
 ## Grupos de consumidores
 
-En una misma generación, cada partición se asigna como máximo a un miembro del
-grupo. Cada cambio de membresía produce una nueva generación y una nueva
-asignación, en menos de 15 s en la configuración de referencia.
+En cada instante, cada partición tiene como máximo un miembro del grupo que
+puede usarla. Cada cambio de membresía incrementa la época del grupo y produce
+un reparto objetivo con la estrategia `range`. Cada miembro converge a ese
+reparto mediante sus latidos: primero deja las particiones que ya no le
+corresponden y después recibe las nuevas, a medida que sus miembros anteriores
+las dejan. El reparto converge en menos de 15 s en la configuración de
+referencia.
 
-- **Identidad.** El cliente genera su `member_id` antes de unirse y debe
-  reutilizarlo en los reintentos. De este modo, repetir un `JoinGroup` cuya
-  respuesta se perdió no crea un segundo miembro.
-- **Commits.** Un commit de una generación obsoleta se rechaza con
-  `ERROR_CODE_ILLEGAL_GENERATION`. Para cada partición se conserva el mayor
-  offset confirmado, de modo que un commit que llega tarde no hace retroceder
-  el progreso. El retroceso explícito se hace con `ResetGroupOffsets`.
+- **Entrar, latir y salir.** Las tres acciones usan `Heartbeat` y se
+  distinguen por `member_epoch`: `0` para entrar, o volver a entrar sin
+  particiones; `-1` para salir; un valor positivo, igual a la época vigente del
+  miembro, para latir. El servidor fija el intervalo de latido, que comunica en
+  cada respuesta, y el plazo de sesión.
+- **Identidad.** El cliente genera su `member_id` antes de entrar y lo reutiliza
+  en todos los latidos y reintentos. Repetir una entrada cuya respuesta se
+  perdió no crea un segundo miembro.
+- **Reconciliación.** En cada latido, el miembro envía todas las particiones
+  que tiene. La respuesta indica las que puede usar (`assignment`) y las que le
+  corresponden pero otro miembro aún no ha dejado (`pending`). El miembro debe
+  dejar de usar cualquier partición que no figure en `assignment`, confirmar su
+  progreso en ella y no incluirla en el siguiente latido. Su época de miembro
+  avanza a la del grupo cuando ya no tiene particiones que dejar. Un miembro que
+  no deja una partición dentro del plazo de reequilibrio sale del grupo.
+- **Sesión.** Un miembro sin latidos durante el plazo de sesión sale del grupo y
+  sus particiones se reasignan.
+- **Épocas obsoletas.** Un latido con una época de miembro distinta de la
+  vigente se rechaza con `ERROR_CODE_ILLEGAL_GENERATION`. El miembro debe dejar
+  todas sus particiones y volver a entrar con `member_epoch = 0` y el mismo
+  `member_id`.
+- **Commits.** Un commit se acepta si el miembro pertenece al grupo, su época
+  de miembro es la vigente y la partición está en su asignación actual,
+  incluidas las que está dejando; si no, se rechaza con
+  `ERROR_CODE_UNKNOWN_MEMBER` o `ERROR_CODE_ILLEGAL_GENERATION`. Para cada
+  partición se conserva el mayor offset confirmado, de modo que un commit que
+  llega tarde no hace retroceder el progreso. El retroceso explícito se hace con
+  `ResetGroupOffsets`. El miembro debe confirmar su progreso antes de salir.
 - **Progreso.** `FetchCommittedOffsets` omite las particiones sin commit; el
   cliente aplica entonces su política de posición inicial.
-- **Salida.** `LeaveGroup` es idempotente: si el miembro ya no pertenece al
-  grupo, responde `ERROR_CODE_NONE`.
+- **Salida.** Salir es idempotente: si el miembro ya no pertenece al grupo, la
+  respuesta es `ERROR_CODE_NONE`.
 
 ## Resultado indeterminado
 
@@ -230,9 +265,9 @@ La lista de códigos es cerrada:
 | `ERROR_CODE_OFFSET_OUT_OF_RANGE` | El offset está fuera de `[logStartOffset, LEO]`. | Corregir la posición. |
 | `ERROR_CODE_OUT_OF_ORDER_SEQUENCE` | La secuencia del productor no es la esperada. | Reconciliar el estado del productor. |
 | `ERROR_CODE_DUPLICATE_SEQUENCE` | La secuencia ya fue aceptada. | Tratar como éxito con el offset original. |
-| `ERROR_CODE_ILLEGAL_GENERATION` | La generación del grupo no es vigente. | Volver a unirse al grupo. |
-| `ERROR_CODE_UNKNOWN_MEMBER` | El miembro no pertenece al grupo. | Volver a unirse al grupo. |
-| `ERROR_CODE_REBALANCE_IN_PROGRESS` | El grupo está reequilibrándose. | Reintentar al terminar el reequilibrio. |
+| `ERROR_CODE_ILLEGAL_GENERATION` | La época de miembro no es la vigente o la partición ya no está asignada al miembro. | Dejar todas las particiones y volver a entrar con `member_epoch = 0`. |
+| `ERROR_CODE_UNKNOWN_MEMBER` | El miembro no pertenece al grupo. | Dejar todas las particiones y volver a entrar con `member_epoch = 0`. |
+| `ERROR_CODE_REBALANCE_IN_PROGRESS` | Reservado. Ninguna operación lo devuelve: el reequilibrio es incremental. | — |
 | `ERROR_CODE_CORRUPT_MESSAGE` | El lote no supera la validación de versión, longitud o CRC. | Corregir el lote. |
 | `ERROR_CODE_NOT_CONTROLLER` | El nodo no es el controlador. | Refrescar metadatos y reintentar. |
 | `ERROR_CODE_REQUEST_TIMED_OUT` | La operación superó su plazo; puede haber tenido efecto. | Reintentar con la misma identidad. |
