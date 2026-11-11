@@ -7,13 +7,16 @@ import pytest
 from prototype.errors import (
     BitacoraError,
     CorruptBatch,
+    IllegalGeneration,
     InvalidBatch,
+    InvalidRequest,
     InvalidReplicationFactor,
     NotLeader,
     OffsetOutOfRange,
     RequestTimedOut,
     StorageFailure,
     TopicAlreadyExists,
+    UnknownMember,
     UnknownTopicOrPartition,
 )
 
@@ -28,6 +31,9 @@ ALL_ERRORS = [
     (NotLeader("pedidos", 0, "n2"), 1),
     (NotLeader("pedidos", 0, None), 1),
     (RequestTimedOut("el Controller no respondió"), 12),
+    (InvalidRequest("group_id", "contiene «/»"), 18),
+    (IllegalGeneration("facturacion", "c1", "época 1, vigente 2"), 7),
+    (UnknownMember("facturacion", "c1"), 8),
 ]
 
 
