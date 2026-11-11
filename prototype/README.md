@@ -10,15 +10,18 @@ la versión Go; el gateway adapta la API pública a los actores del prototipo.
 prototype/
 ├── errors.py                  Errores del dominio con su ErrorCode del contrato
 ├── batch.py                   Cabecera del lote: lectura, validación, baseOffset y CRC-32C
-├── config.py                  Carpeta de datos y política de fsync
+├── config.py                  Carpeta de datos, fsync y plazos
+├── names.py                   Reglas de nombres de tema y de grupo
+├── range_strategy.py          Asignación range de particiones a miembros
 ├── actors/
 │   ├── partition_replica.py   Réplica de una partición: log, archivo propio y replicación
-│   └── controller.py          Réplicas en anillo, papeles, ISR y promoción del líder
+│   ├── controller.py          Réplicas en anillo, papeles, ISR y promoción del líder
+│   └── group_coordinator.py   Grupos de consumidores: membresía, reparto y offsets
 ├── gateway/                   Servicio gRPC Python
 └── tests/                     Pruebas locales del prototipo
 ```
 
-`errors.py` y `batch.py` no dependen de Ray. Las réplicas y el Controller son
+`errors.py`, `batch.py`, `names.py` y `range_strategy.py` no dependen de Ray. Las réplicas y el Controller son
 actores `detached` con nombre, en el namespace `bitacora`; Ray los reinicia si
 su proceso muere, y cada uno reconstruye su estado desde sus archivos.
 
@@ -40,19 +43,47 @@ al promover. Solo la líder atiende `append` y `read`; las seguidoras responden
   (`report_leader_unavailable`), que la comprueba y promueve a la réplica viva
   del ISR con mayor LEO.
 
+## Grupos de consumidores
+
+Hay tres coordinadores de grupo (`group-coordinator-0..2`), uno por nodo lógico.
+Cada grupo lo atiende siempre el `crc32(group_id) % 3`, de modo que cualquier
+proceso sabe a cuál dirigirse.
+
+- `heartbeat(grupo, miembro, época, temas, propias)`: con época `0` el miembro
+  entra; con `-1` sale; con su época vigente late. El miembro envía todas las
+  particiones que tiene y recibe las que puede usar (`assignment`) y las que le
+  corresponden pero otro aún no ha dejado (`pending`).
+- Cada cambio de membresía incrementa la época del grupo y recalcula el reparto
+  con `range`. Una partición solo se entrega cuando ningún otro miembro la
+  tiene; la época del miembro avanza cuando ha dejado lo que le sobraba.
+- `commit` se acepta con la época del miembro vigente y para particiones suyas,
+  aunque las esté dejando; el offset confirmado nunca retrocede. `fetch`
+  devuelve los offsets confirmados.
+- Los plazos de sesión y de reequilibrio se revisan al principio de cada
+  llamada y cada segundo, cuando un hilo del actor deja `expire()` en su propio
+  buzón. Ese hilo no modifica el estado.
+
 ## Datos
 
 Cada réplica escribe `{tema}-{partición}-{nodo}.log`: los lotes del contrato
 uno tras otro, con su `baseOffset` asignado. El Controller escribe
 `controller.json` con los temas, el nodo de cada réplica, el líder y el ISR de
 cada partición, y añade a `events.ndjson` una línea JSON por cada cambio de ISR
-(`isr_change`) y cada promoción (`leader_change`).
+(`isr_change`) y cada promoción (`leader_change`). Cada grupo se guarda en
+`group-{id}.json` (época, miembros, asignación actual, particiones pendientes de
+dejar y offsets), de forma atómica, antes de responder a cualquier cambio.
+
+Los nombres de tema y de grupo solo admiten letras ASCII, dígitos, `.`, `_` y
+`-`, y no pueden ser `.` ni `..`: forman parte de nombres de archivo.
 
 | Variable | Efecto | Valor por defecto |
 |---|---|---|
 | `BITACORA_DATA_DIR` | Carpeta de los archivos | `data/ray/` en la raíz del repositorio |
 | `BITACORA_FSYNC` | `1`: `fsync` tras cada lote | Solo `flush`: sobrevive a la caída del proceso, no a la del sistema |
 | `BITACORA_REPLICATION_TIMEOUT_MS` | Plazo del líder para cada seguidora y del `Controller` para cada réplica | `2000` |
+| `BITACORA_GROUP_SESSION_TIMEOUT_MS` | Tiempo sin latidos tras el que un miembro sale de su grupo | `10000` |
+| `BITACORA_GROUP_HEARTBEAT_INTERVAL_MS` | Intervalo de latido que el coordinador comunica a los miembros | `3000` |
+| `BITACORA_GROUP_REBALANCE_TIMEOUT_MS` | Tiempo para dejar las particiones que ya no corresponden | `15000` |
 
 ## Pruebas
 
