@@ -48,7 +48,7 @@ flowchart LR
 
     subgraph app["Aplicación Bitácora — actores Ray"]
         ctl["Controller<br/><i>actor detached</i><br/>Temas, réplicas y líder por partición"]
-        gc["GroupCoordinator<br/><i>actor detached</i><br/>Miembros, generación y offsets"]
+        gc["GroupCoordinator ×3<br/><i>actores detached, uno por nodo</i><br/>Miembros, épocas, reparto y offsets"]
         subgraph parts["PartitionReplica — un actor por réplica"]
             lead["Réplica líder<br/><i>nodo n1</i>"]
             f1["Réplica seguidora<br/><i>nodo n2</i>"]
@@ -88,7 +88,7 @@ flowchart LR
 | Gateway gRPC | Implementa `Log`, `Groups` y `Admin`; localiza los actores y traduce errores del runtime (`RayActorError`, `GetTimeoutError`) a `ErrorCode` | Ninguno | Localización de actores por nombre; llamadas remotas |
 | `Controller` | Crea temas y reparte réplicas entre nodos lógicos; mantiene líder y conjunto sincronizado por partición; promueve una réplica si el líder falla | Metadatos de temas y particiones | Actor con nombre y ciclo de vida independiente del cliente; reinicio de actores |
 | `PartitionReplica` | Añade y lee registros con offsets contiguos; persiste en su archivo; el líder replica a las seguidoras según `acks` | Log de una réplica | Ejecución secuencial de los métodos del actor; ubicación por recursos lógicos |
-| `GroupCoordinator` | Gestiona miembros, latidos, generación y asignación `range`; valida commits por generación | Pertenencia, generación y offsets del grupo | Actor con nombre; estado volcado a archivo tras cada commit |
+| `GroupCoordinator` | Tres instancias; cada grupo va a la `crc32(group_id) % 3`. Gestiona entradas, latidos y salidas; reconcilia la asignación de cada miembro con el reparto `range`; valida commits con la época del miembro | Por grupo: época, miembros, asignación actual y offsets | Actor con nombre; ejecución secuencial de sus métodos; un hilo propio solo encola revisiones de plazos |
 
 ## 3. Vista de ejecución
 
@@ -174,7 +174,7 @@ de líder.
 | Líder, réplicas e ISR por partición | `Controller` | `controller.json`, reescrito de forma atómica (archivo temporal y `os.replace`) antes de comunicar cada cambio | Se conserva tras reiniciar el `Controller` (`test_promotion.py`) |
 | Cambios de ISR y promociones | `Controller` | `events.ndjson`, una línea JSON por evento | Solo se añade |
 | Papel de cada réplica, LEO de las seguidoras, copias pendientes | `PartitionReplica` líder | Solo en memoria | Se reinicia como seguidora; el `Controller` reasigna los papeles |
-| Pertenencia, generación y offsets de grupo | `GroupCoordinator` | Volcado a archivo tras cada commit | Pendiente de verificar |
+| Época, miembros, asignación actual y offsets de cada grupo | `GroupCoordinator` de su fragmento | `group-{id}.json`, escrito de forma atómica antes de responder a cualquier cambio | Se recupera tras `kill -9`; las sesiones vuelven a contar desde el reinicio (`test_group_coordinator.py`) |
 | Identidad del productor | No existe en el prototipo: los lotes la llevan a `-1` | — | No aplica |
 
 ## 5. Mapa de dependencias del middleware
@@ -196,7 +196,7 @@ fila no se da por cerrada sin ella.
 | Reintento ante fallo | `max_task_retries` del actor | Ray | Se ejecutan 0 y 3 reintentos | Pendiente | Identidad de productor, secuencia y deduplicación en el líder |
 | Replicación | El líder envía los lotes a las seguidoras (`replicate`) y espera con `ray.wait` y un plazo; el ISR lo cambia el `Controller` a propuesta del líder | Bitácora y Ray | Replicación por *push*; `acks=all` espera a las réplicas del ISR; plazo `BITACORA_REPLICATION_TIMEOUT_MS` | `test_replication.py` | Replicación por *pull*, conjunto sincronizado y límite de visibilidad |
 | Resultado de una operación remota | Respuesta síncrona con el offset base | Ray | Sin almacén de resultados propio | Pendiente | Respuesta síncrona con el offset; sin object store |
-| Coordinación de grupos | Actor con generación; asignación `range`; offsets en archivo | Bitácora | Estado en un único actor | Pendiente | Coordinador y offsets replicados mediante consenso |
+| Coordinación de grupos | Tres actores coordinadores; reconciliación incremental por latidos; asignación `range`; offsets en archivo por grupo | Bitácora | Fragmento fijo por `crc32`; un hilo por actor modifica el estado | `test_group_coordinator.py`, `test_range_strategy.py` | Coordinador y offsets replicados mediante consenso |
 | Serialización entre procesos | Serialización del runtime | Ray | Registros como bytes | Pendiente | Formato de cable Protobuf y formato binario en disco |
 | Control de carga | Cola de llamadas pendientes del actor | Ray | Sin límite explícito | Pendiente | Colas acotadas, plazos y presupuesto de reintentos |
 | Observabilidad | Logs de la aplicación y estado del runtime | Bitácora y Ray | Identificadores de petición en logs | Pendiente | Logs estructurados con identificadores estables y métricas |
@@ -226,3 +226,6 @@ experimento pone a prueba: `verified`, `violated` o `not_evaluable`.
 | L-06 | La caída del líder solo se detecta cuando alguien le llama y lo avisa | Una partición sin tráfico puede tener un líder caído sin que se promueva otro | Aceptado en el prototipo; la versión nativa usa latidos y sesiones |
 | L-07 | Mientras el líder espera a las seguidoras no atiende otras llamadas | Una seguidora lenta retrasa también las lecturas, hasta el plazo | Documentar el plazo configurado; medir latencias en `EXP-001` |
 | L-08 | Con `acks=1`, el HW solo avanza cuando llega otra llamada al líder | Un lote puede tardar en ser visible si no hay más tráfico | Aceptado en el prototipo |
+| L-09 | Los coordinadores de grupo comparten la carpeta de datos | Solo funciona con todos los nodos lógicos en una máquina | Aceptado en el prototipo; la versión nativa replica el estado |
+| L-10 | El número de fragmentos de grupo es fijo | Cambiarlo movería los grupos de coordinador | Fijarlo antes del despliegue |
+| L-11 | La expulsión por plazo vencido puede retrasarse hasta un segundo | Un miembro caído conserva sus particiones hasta el siguiente tic | Aceptado: es pequeño frente a la sesión de 10 s |
