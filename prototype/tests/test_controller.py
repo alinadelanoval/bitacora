@@ -16,7 +16,12 @@ from prototype.actors.controller import (
     ring_assignment,
 )
 from prototype.config import NAMESPACE
-from prototype.errors import InvalidReplicationFactor, TopicAlreadyExists, UnknownTopicOrPartition
+from prototype.errors import (
+    InvalidReplicationFactor,
+    InvalidRequest,
+    TopicAlreadyExists,
+    UnknownTopicOrPartition,
+)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -73,6 +78,18 @@ def test_create_topic_is_idempotent_and_rejects_conflicts(controller, topic, det
         ray.get(controller.create_topic.remote(f"{topic}x", 3, 4))
     with pytest.raises(UnknownTopicOrPartition):
         ray.get(controller.describe_topic.remote(f"{topic}y"))
+
+
+def test_create_topic_rejects_names_that_would_escape_the_data_dir(controller, config):
+    # «a/../../../x» haría que la réplica escribiera fuera de la carpeta de datos.
+    for name in ("a/../../../x", "..", "con espacio", ""):
+        with pytest.raises(InvalidRequest) as caught:
+            ray.get(controller.create_topic.remote(name, 1, 1))
+        assert caught.value.field == "topic"
+    with pytest.raises(InvalidRequest) as caught:
+        ray.get(controller.create_topic.remote("valido", 0, 1))
+    assert caught.value.field == "partitions"
+    assert not any(config.data_dir.parent.rglob("*.log"))        # no se ha creado ninguna réplica
 
 
 def test_metadata_is_written_atomically(controller, config, topic, detached_actors):
