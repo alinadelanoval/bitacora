@@ -92,6 +92,20 @@ Los nombres de tema y de grupo solo admiten letras ASCII, dígitos, `.`, `_` y
 clúster de tres nodos Ray en la misma máquina (requiere `RAY_AUTH_MODE=token`,
 que la prueba fija).
 
+Cobertura, también dentro de los procesos de los actores:
+
+```sh
+python -m coverage run -m pytest prototype/
+python -m coverage combine
+python -m coverage report
+```
+
+La configuración (`[tool.coverage.*]` en `pyproject.toml`) propaga la medición
+a los procesos que arranca Ray. Un proceso solo guarda sus datos si termina de
+forma ordenada; por eso las pruebas terminan los actores con
+`__ray_terminate__` en lugar de `ray.kill`. Los procesos que una prueba mata
+con `SIGKILL` no aportan datos.
+
 Registrar en la sección «Fase 1: prototipo con Ray» de `docs/architecture.md`
 únicamente capacidades de Ray observadas. No usar Ray como dependencia runtime
 de la versión nativa.

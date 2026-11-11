@@ -30,3 +30,7 @@ Thumbs.db
 
 # Generated code (keep source schemas in proto/)
 /gen/
+
+# Datos de cobertura de Python
+.coverage
+.coverage.*
