@@ -31,10 +31,12 @@ from prototype.actors.partition_replica import LEADER, PartitionReplicaActor, re
 from prototype.config import NAMESPACE, Config
 from prototype.errors import (
     InvalidReplicationFactor,
+    InvalidRequest,
     RequestTimedOut,
     TopicAlreadyExists,
     UnknownTopicOrPartition,
 )
+from prototype.names import validate_topic_name
 
 CONTROLLER_NAME = "controller"
 NODES = 3
@@ -92,6 +94,11 @@ class Controller:
 
     def create_topic(self, name: str, partitions: int, replication_factor: int) -> TopicInfo:
         """Crea el tema y sus réplicas; si ya existe con los mismos parámetros, lo devuelve."""
+        # El nombre forma parte del nombre del archivo de cada réplica: sin
+        # validarlo, «a/../../x» escribiría fuera de la carpeta de datos.
+        validate_topic_name(name)
+        if partitions < 1:
+            raise InvalidRequest("partitions", "debe ser al menos 1")
         existing = self._topics.get(name)
         if existing is not None:
             if (existing.partitions, existing.replication_factor) == (partitions, replication_factor):

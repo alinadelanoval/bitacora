@@ -66,6 +66,49 @@ class InvalidBatch(BitacoraError):
         self.reason = reason
 
 
+class InvalidRequest(BitacoraError):
+    """Un campo de la petición no cumple una regla del contrato."""
+
+    code = 18  # ERROR_CODE_INVALID_REQUEST
+
+    def __init__(self, field: str, reason: str):
+        super().__init__(field, reason)
+        self.field = field
+        self.reason = reason
+
+    def __str__(self) -> str:
+        return f"{self.field}: {self.reason}"
+
+
+class IllegalGeneration(BitacoraError):
+    """La época del miembro no es la vigente, o la partición ya no es suya."""
+
+    code = 7  # ERROR_CODE_ILLEGAL_GENERATION
+
+    def __init__(self, group_id: str, member_id: str, reason: str):
+        super().__init__(group_id, member_id, reason)
+        self.group_id = group_id
+        self.member_id = member_id
+        self.reason = reason
+
+    def __str__(self) -> str:
+        return f"{self.member_id} en {self.group_id}: {self.reason}"
+
+
+class UnknownMember(BitacoraError):
+    """El miembro no pertenece al grupo (nunca entró, salió o fue expulsado)."""
+
+    code = 8  # ERROR_CODE_UNKNOWN_MEMBER
+
+    def __init__(self, group_id: str, member_id: str):
+        super().__init__(group_id, member_id)
+        self.group_id = group_id
+        self.member_id = member_id
+
+    def __str__(self) -> str:
+        return f"{self.member_id} no pertenece a {self.group_id}"
+
+
 class OffsetOutOfRange(BitacoraError):
     """Lectura con un offset fuera de [0, LEO]."""
 

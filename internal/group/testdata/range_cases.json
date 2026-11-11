@@ -1,0 +1,50 @@
+[
+  {
+    "name": "division exacta",
+    "subscriptions": {"c1": ["pedidos"], "c2": ["pedidos"], "c3": ["pedidos"]},
+    "partitions": {"pedidos": 6},
+    "expected": {"c1": [["pedidos", 0], ["pedidos", 1]], "c2": [["pedidos", 2], ["pedidos", 3]], "c3": [["pedidos", 4], ["pedidos", 5]]}
+  },
+  {
+    "name": "con resto: los primeros reciben una mas",
+    "subscriptions": {"c3": ["pedidos"], "c1": ["pedidos"], "c2": ["pedidos"]},
+    "partitions": {"pedidos": 7},
+    "expected": {"c1": [["pedidos", 0], ["pedidos", 1], ["pedidos", 2]], "c2": [["pedidos", 3], ["pedidos", 4]], "c3": [["pedidos", 5], ["pedidos", 6]]}
+  },
+  {
+    "name": "mas miembros que particiones",
+    "subscriptions": {"c1": ["pedidos"], "c2": ["pedidos"], "c3": ["pedidos"]},
+    "partitions": {"pedidos": 2},
+    "expected": {"c1": [["pedidos", 0]], "c2": [["pedidos", 1]], "c3": []}
+  },
+  {
+    "name": "un solo miembro",
+    "subscriptions": {"c1": ["pedidos"]},
+    "partitions": {"pedidos": 3},
+    "expected": {"c1": [["pedidos", 0], ["pedidos", 1], ["pedidos", 2]]}
+  },
+  {
+    "name": "dos temas: el reparto se repite en cada tema",
+    "subscriptions": {"c1": ["pagos", "pedidos"], "c2": ["pagos", "pedidos"]},
+    "partitions": {"pagos": 3, "pedidos": 3},
+    "expected": {"c1": [["pagos", 0], ["pagos", 1], ["pedidos", 0], ["pedidos", 1]], "c2": [["pagos", 2], ["pedidos", 2]]}
+  },
+  {
+    "name": "cada tema solo entre sus suscriptores",
+    "subscriptions": {"c1": ["pagos", "pedidos"], "c2": ["pedidos"]},
+    "partitions": {"pagos": 2, "pedidos": 2},
+    "expected": {"c1": [["pagos", 0], ["pagos", 1], ["pedidos", 0]], "c2": [["pedidos", 1]]}
+  },
+  {
+    "name": "tema sin particiones o inexistente",
+    "subscriptions": {"c1": ["pedidos", "fantasma"]},
+    "partitions": {"pedidos": 1},
+    "expected": {"c1": [["pedidos", 0]]}
+  },
+  {
+    "name": "sin miembros",
+    "subscriptions": {},
+    "partitions": {"pedidos": 3},
+    "expected": {}
+  }
+]
