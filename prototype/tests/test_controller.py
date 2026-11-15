@@ -69,6 +69,17 @@ def test_create_topic_starts_one_named_replica_per_copy(controller, topic, detac
         assert ray.get(replica.log_end_offset.remote()) == 0
 
 
+def test_create_topic_with_request_id_recognizes_only_its_own_retries(controller, topic, detached_actors):
+    info = ray.get(controller.create_topic.remote(topic, 1, 3, "peticion-1"))
+    detached_actors.extend(replica_names(info))
+    assert info.request_id == "peticion-1"
+    assert ray.get(controller.create_topic.remote(topic, 1, 3, "peticion-1")) == info
+    with pytest.raises(TopicAlreadyExists):                 # otra petición, mismos parámetros
+        ray.get(controller.create_topic.remote(topic, 1, 3, "peticion-2"))
+    with pytest.raises(TopicAlreadyExists):                 # la misma petición, otros parámetros
+        ray.get(controller.create_topic.remote(topic, 2, 3, "peticion-1"))
+
+
 def test_create_topic_is_idempotent_and_rejects_conflicts(controller, topic, detached_actors):
     info = create(controller, topic, detached_actors)
     assert ray.get(controller.create_topic.remote(topic, 3, 3)) == info

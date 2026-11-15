@@ -67,6 +67,8 @@ class TopicInfo:
     leaders: dict[int, str]
     # partición → nodos del ISR, la líder incluida
     isr: dict[int, list[str]]
+    # request_id de la petición que creó el tema; None si se creó sin él
+    request_id: str | None = None
 
     def leader(self, partition: int) -> str:
         return self.leaders[partition]
@@ -92,8 +94,15 @@ class Controller:
 
     # --- Temas ------------------------------------------------------------------
 
-    def create_topic(self, name: str, partitions: int, replication_factor: int) -> TopicInfo:
-        """Crea el tema y sus réplicas; si ya existe con los mismos parámetros, lo devuelve."""
+    def create_topic(self, name: str, partitions: int, replication_factor: int,
+                     request_id: str | None = None) -> TopicInfo:
+        """Crea el tema y sus réplicas, o devuelve el existente si es un reintento.
+
+        Con `request_id`, un reintento es la misma petición: mismo request_id y
+        mismos parámetros. Un tema creado por otra petición produce
+        TopicAlreadyExists, aunque los parámetros coincidan. Sin `request_id`,
+        cuenta como reintento cualquier petición con los mismos parámetros.
+        """
         # El nombre forma parte del nombre del archivo de cada réplica: sin
         # validarlo, «a/../../x» escribiría fuera de la carpeta de datos.
         validate_topic_name(name)
@@ -101,7 +110,9 @@ class Controller:
             raise InvalidRequest("partitions", "debe ser al menos 1")
         existing = self._topics.get(name)
         if existing is not None:
-            if (existing.partitions, existing.replication_factor) == (partitions, replication_factor):
+            same_params = (existing.partitions, existing.replication_factor) == (partitions, replication_factor)
+            same_request = request_id is None or existing.request_id is None or existing.request_id == request_id
+            if same_params and same_request:
                 return existing
             raise TopicAlreadyExists(name)
         if not 1 <= replication_factor <= NODES:
@@ -120,6 +131,7 @@ class Controller:
             assignment=assignment,
             leaders={p: nodes[0] for p, nodes in assignment.items()},
             isr={p: list(nodes) for p, nodes in assignment.items()},
+            request_id=request_id,
         )
         # Primero se guarda y después se asignan los papeles: si el Controller
         # cayera en medio, al volver sabría quién debe ser líder.
@@ -291,6 +303,7 @@ class Controller:
                 assignment=assignment,
                 leaders=leaders,
                 isr=isr,
+                request_id=t.get("request_id"),
             )
         return topics
 
@@ -308,6 +321,7 @@ class Controller:
                     "assignment": {str(p): nodes for p, nodes in t.assignment.items()},
                     "leaders": {str(p): node for p, node in t.leaders.items()},
                     "isr": {str(p): nodes for p, nodes in t.isr.items()},
+                    "request_id": t.request_id,
                 }
                 for t in self._topics.values()
             }
