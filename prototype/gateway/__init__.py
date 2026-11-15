@@ -1,1 +1,1 @@
-"""gRPC gateway for the Bitácora Phase 1 prototype."""
+"""Gateway gRPC del prototipo de Bitácora: el contrato `bitacora.v1` sobre los actores Ray."""
