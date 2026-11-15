@@ -1,8 +1,9 @@
 """Funciones sobre los bytes de un lote: cabecera, validación, baseOffset y CRC.
 
 El formato es el de `docs/contract.md` («Formato del lote»): una cabecera fija
-de 61 bytes en big-endian seguida de los registros. Este módulo solo entiende
-la cabecera; los registros se guardan y se devuelven sin decodificar.
+de 61 bytes en big-endian seguida de los registros. Los registros se guardan y
+se devuelven sin decodificar; `records` solo los lee para buscar por marca de
+tiempo (`ListOffsets`).
 
 No depende de Ray ni de ningún actor: lo usan la réplica y el gateway.
 """
@@ -119,3 +120,66 @@ def check_crc(header: Header, data: bytes) -> None:
     computed = crc32c(data[CRC_START:])
     if computed != header.crc:
         raise CorruptBatch(f"CRC guardado {header.crc:08x} y calculado {computed:08x}")
+
+
+# --- Registros -------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Record:
+    """Un registro de un lote. `key` o `value` valen None si su longitud es -1."""
+
+    offset: int            # baseOffset del lote + offsetDelta
+    timestamp: int         # milisegundos Unix: baseTimestamp + timestampDelta
+    key: bytes | None
+    value: bytes | None
+
+
+def _read_varint(data: bytes, pos: int) -> tuple[int, int]:
+    """Lee un varint zigzag en `pos`; devuelve el valor y la posición siguiente."""
+    shift = 0
+    raw = 0
+    while True:
+        if pos >= len(data):
+            raise CorruptBatch("registro cortado dentro de un varint")
+        byte = data[pos]
+        pos += 1
+        raw |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            break
+        shift += 7
+        if shift > 63:
+            raise CorruptBatch("varint de más de 10 bytes")
+    return (raw >> 1) ^ -(raw & 1), pos
+
+
+def _read_bytes(data: bytes, pos: int) -> tuple[bytes | None, int]:
+    length, pos = _read_varint(data, pos)
+    if length == -1:
+        return None, pos
+    if length < 0 or pos + length > len(data):
+        raise CorruptBatch(f"longitud de campo {length} fuera del registro")
+    return data[pos:pos + length], pos + length
+
+
+def records(data: bytes) -> list[Record]:
+    """Decodifica los registros de un lote, con su offset y su marca de tiempo.
+
+    Las cabeceras de cada registro se leen y se descartan.
+    """
+    header = parse_header(data)
+    result = []
+    pos = HEADER_SIZE
+    for _ in range(header.record_count):
+        length, pos = _read_varint(data, pos)
+        end = pos + length
+        if length < 0 or end > len(data):
+            raise CorruptBatch(f"registro de {length} bytes fuera del lote")
+        pos += 1                                    # attributes del registro
+        timestamp_delta, pos = _read_varint(data, pos)
+        offset_delta, pos = _read_varint(data, pos)
+        key, pos = _read_bytes(data, pos)
+        value, pos = _read_bytes(data, pos)
+        result.append(Record(header.base_offset + offset_delta,
+                             header.base_timestamp + timestamp_delta, key, value))
+        pos = end                                   # salta las cabeceras
+    return result
