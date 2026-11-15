@@ -191,3 +191,17 @@ func TestCheck_MultiplePartitions_EvaluatedSeparately(t *testing.T) {
 		expect(t, prop(t, h, id), Verified)
 	}
 }
+
+func TestCheckI08_FailedWriteInLog_RejectedWritePresent(t *testing.T) {
+	h := (&hist{}).produce("a", 0, all, ok).produce("b", -1, all, fail).final("a", "b")
+	p := prop(t, h, "I-08")
+	expect(t, p, Violated, "rejected_write_present")
+	if a := p.Anomalies[0]; a.IDs[0] != "b" || *a.Offset != 1 || len(a.Lines) != 2 || a.Lines[0] != 2 {
+		t.Fatalf("anomalía = %+v", a)
+	}
+}
+
+func TestCheckI08_FailedWriteAbsent_Verified(t *testing.T) {
+	h := (&hist{}).produce("a", 0, all, ok).produce("b", -1, all, fail).final("a")
+	expect(t, prop(t, h, "I-08"), Verified)
+}

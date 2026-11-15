@@ -47,7 +47,8 @@ Reglas que aplica la versión mínima:
   propiedad queda `not_evaluable`.
 - I-08: el generador mínimo envía cada `id` una sola vez y no reintenta, así que
   un `id` en dos offsets es un segundo efecto del sistema (por ejemplo, un
-  reintento interno de Ray).
+  reintento interno de Ray). Una escritura `fail` presente en el log también
+  viola I-08: el cliente que la reintentase la duplicaría.
 
 ## Anomalías
 
@@ -62,6 +63,7 @@ Reglas que aplica la versión mínima:
 | `position_lost`, `silent_reset` | Posición confirmada no recuperada tras un reinicio, o sustituida sin una operación explícita | I-06 |
 | `dual_owner` | Dos propietarios de la misma partición en un mismo instante (requiere logs del coordinador) | I-07 |
 | `duplicate` | Identificador lógico con más de un registro bajo identidad vigente | I-08 |
+| `rejected_write_present` | Escritura con resultado `fail` (el sistema dijo que no tuvo efecto) presente en la lectura final; un reintento del cliente la duplicaría | I-08 |
 | `unauthorized_effect` | Cambio de estado tras una operación rechazada por rol | I-09 |
 
 I-05 (integridad) no se evalúa con el historial: se comprueba con las pruebas

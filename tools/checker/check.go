@@ -394,9 +394,12 @@ func checkI04(s *state) Property {
 	return p
 }
 
-// checkI08: ningún id aparece más de una vez en la lectura final. El
-// generador mínimo envía cada id una sola vez y no reintenta, así que una
-// repetición es un segundo efecto producido por el sistema.
+// checkI08: ningún id aparece más de una vez en la lectura final, y ninguna
+// escritura rechazada (fail) aparece en ella. El generador mínimo envía cada
+// id una sola vez y no reintenta, así que una repetición es un segundo efecto
+// producido por el sistema. Una escritura rechazada que sí tuvo efecto engaña
+// al cliente: si la reintenta, la duplica (docs/contract.md, «Resultado
+// indeterminado»).
 func checkI08(s *state) Property {
 	p := Property{ID: "I-08", Name: "Reintento seguro", Anomalies: []Anomaly{}}
 	if len(s.done) == 0 {
@@ -406,6 +409,21 @@ func checkI08(s *state) Property {
 	sent := map[string]bool{}
 	for _, e := range s.produces {
 		sent[e.ID] = true
+	}
+	for _, e := range s.produces {
+		k := tp{e.Topic, e.Partition}
+		if e.Result != history.ResultFail || !s.finalComplete(k) {
+			continue
+		}
+		if at := s.locations(k)[e.ID]; len(at) > 0 {
+			ls := []int{e.Line}
+			for _, l := range at {
+				ls = append(ls, l.line)
+			}
+			p.Anomalies = append(p.Anomalies, Anomaly{Kind: "rejected_write_present", Topic: k.topic,
+				Partition: k.partition, Offset: history.Int64(at[0].off), IDs: []string{e.ID}, Lines: ls,
+				Detail: fmt.Sprintf("Produce respondió %s y el registro está en el log", e.Error)})
+		}
 	}
 	for _, k := range sortedKeys(s.done) {
 		at := s.locations(k)
