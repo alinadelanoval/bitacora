@@ -145,7 +145,8 @@ func Run(ctx context.Context, c *client.Client, endpoint string, w Workload, opt
 				off = -1
 			}
 			e := history.Entry{Op: history.OpProduce, TS: now(), Topic: w.Topic, Partition: part, ID: id, Key: id,
-				Acks: w.Acks, Result: result, Error: reason, Offset: history.Int64(off), LatencyUs: lat.Microseconds()}
+				Acks: w.Acks, Result: result, Error: reason, Offset: history.Int64(off), LatencyUs: lat.Microseconds(),
+				ElapsedUs: time.Since(start).Microseconds()}
 			if err := out.Write(e); err != nil {
 				writeErr.CompareAndSwap(nil, &err)
 				return

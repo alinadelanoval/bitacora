@@ -52,6 +52,11 @@ type Entry struct {
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
 	LatencyUs int64  `json:"latency_us,omitempty"`
+	// ElapsedUs: microsegundos desde el inicio de la carga hasta la respuesta,
+	// con reloj monotónico. ts es la hora de pared, que puede saltar (por
+	// ejemplo, cuando WSL2 corrige su reloj): los intervalos se calculan con
+	// ElapsedUs.
+	ElapsedUs int64 `json:"elapsed_us,omitempty"`
 
 	// produce (offset devuelto, -1 si no es ok) y read (offset leído)
 	Offset *int64 `json:"offset,omitempty"`

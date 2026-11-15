@@ -227,31 +227,33 @@ def inject_leader_loss(history: Path, data_dir: Path, topic: str, started: float
             "ok_writes_before_kill": ok_before, "leader_change": change}
 
 
-def parse_ts(ts: str) -> datetime:
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-
 def ok_gaps(history: Path, killed_at: str | None) -> dict:
-    """Mayor intervalo sin escrituras ok en toda la carga y, si hubo caída, el
-    que empieza en la última escritura ok anterior a ella: la indisponibilidad
-    que ve el cliente."""
-    times = []
+    """Mayor intervalo sin escrituras ok, medido con elapsed_us (reloj
+    monotónico del LoadGen). Con caída, ese intervalo es la indisponibilidad
+    que ve el cliente: sin fallos ningún intervalo pasa de unas decenas de
+    milisegundos (EXP-001). No se usa ts: la hora de pared puede saltar, y la
+    de dos procesos distintos no se puede comparar con precisión.
+
+    Se anotan las escrituras ok que delimitan el intervalo y las escrituras no
+    ok que terminan dentro de él, para comprobar que corresponde a la caída."""
+    oks, others = [], []
     with open(history) as f:
         for line in f:
             e = json.loads(line)
-            if e["op"] == "produce" and e["result"] == "ok":
-                times.append(parse_ts(e["ts"]))
-    times.sort()
-    gaps = [(b - a).total_seconds() for a, b in zip(times, times[1:])]
-    result = {"max_ok_gap_s": round(max(gaps), 3) if gaps else None}
+            if e["op"] != "produce":
+                continue
+            (oks if e["result"] == "ok" else others).append(e)
+    oks.sort(key=lambda e: e["elapsed_us"])
+    if len(oks) < 2:
+        return {"max_ok_gap_s": None}
+    a, b = max(zip(oks, oks[1:]), key=lambda p: p[1]["elapsed_us"] - p[0]["elapsed_us"])
+    result = {"max_ok_gap_s": round((b["elapsed_us"] - a["elapsed_us"]) / 1e6, 3),
+              "max_ok_gap_between": [a["id"], b["id"]],
+              "max_ok_gap_at_s": round(a["elapsed_us"] / 1e6, 3)}
     if killed_at:
-        kill = parse_ts(killed_at)
-        before = [t for t in times if t <= kill]
-        after = [t for t in times if t > kill]
-        if before and after:
-            result["unavailable_s"] = round((after[0] - before[-1]).total_seconds(), 3)
-        else:
-            result["unavailable_s"] = None     # no hubo escrituras ok a uno de los lados
+        inside = [e["id"] for e in others if a["elapsed_us"] <= e["elapsed_us"] <= b["elapsed_us"]]
+        result["unavailable_s"] = result["max_ok_gap_s"]
+        result["not_ok_inside_gap"] = inside
     return result
 
 

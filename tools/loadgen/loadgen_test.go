@@ -385,3 +385,21 @@ func TestMain_EndToEnd_WritesHistoryAndSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRun_ElapsedIsMonotonicAndCoversLatency(t *testing.T) {
+	_, _, es := runLoad(t, &fakeLog{}, testWorkload(100))
+	n := 0
+	for _, e := range es {
+		if e.Op != history.OpProduce {
+			continue
+		}
+		n++
+		// La respuesta llega después de enviar: elapsed >= latencia > 0.
+		if e.ElapsedUs <= 0 || e.ElapsedUs < e.LatencyUs {
+			t.Fatalf("%s: elapsed_us=%d latency_us=%d", e.ID, e.ElapsedUs, e.LatencyUs)
+		}
+	}
+	if n != 100 {
+		t.Fatalf("%d escrituras", n)
+	}
+}

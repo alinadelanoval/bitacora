@@ -33,7 +33,7 @@ rechaza las líneas mal formadas o con campos desconocidos.
 
 | `op` | Campos propios | Significado |
 |---|---|---|
-| `produce` | `id`, `key`, `acks` (`none`, `leader`, `all`), `result`, `offset` (`-1` si no es `ok`), `error`, `latency_us` | Una escritura y su resultado. El valor del registro es su `id`. |
+| `produce` | `id`, `key`, `acks` (`none`, `leader`, `all`), `result`, `offset` (`-1` si no es `ok`), `error`, `latency_us`, `elapsed_us` | Una escritura y su resultado. El valor del registro es su `id`. `elapsed_us` es el tiempo desde el inicio de la carga con reloj monotónico; `ts`, la hora de pared, puede saltar y no sirve para medir intervalos. |
 | `read` | `reader`, `offset`, `value` | Un registro leído. La lectura final usa `reader: "final"`; las lecturas durante el experimento usan otro nombre, por ejemplo `probe`. |
 | `final_read_done` | `start_offset`, `high_watermark` | La lectura final de la partición llegó a su HW: todo offset de `[start_offset, high_watermark)` tuvo que leerse. |
 
