@@ -109,6 +109,20 @@ class UnknownMember(BitacoraError):
         return f"{self.member_id} no pertenece a {self.group_id}"
 
 
+class GroupNotEmpty(BitacoraError):
+    """El grupo tiene miembros: sus posiciones solo se reinician con el grupo vacío."""
+
+    code = 15  # ERROR_CODE_GROUP_NOT_EMPTY
+
+    def __init__(self, group_id: str, members: int):
+        super().__init__(group_id, members)
+        self.group_id = group_id
+        self.members = members
+
+    def __str__(self) -> str:
+        return f"{self.group_id} tiene {self.members} miembros"
+
+
 class OffsetOutOfRange(BitacoraError):
     """Lectura con un offset fuera de [0, LEO]."""
 

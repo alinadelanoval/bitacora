@@ -51,6 +51,7 @@ from prototype.actors.controller import CONTROLLER_NAME
 from prototype.config import NAMESPACE, Config
 from prototype.errors import (
     BitacoraError,
+    GroupNotEmpty,
     IllegalGeneration,
     InvalidRequest,
     RequestTimedOut,
@@ -219,6 +220,32 @@ class GroupCoordinator:
         if group is None:
             return {}
         return {(t, p): group.offsets[(t, p)] for t, p in partitions if (t, p) in group.offsets}
+
+    def reset_offsets(self, group_id: str, offsets: list[tuple[str, int, int]]) -> None:
+        """Fija la siguiente posición de lectura de cada partición, aunque retroceda.
+
+        Es el replay explícito: solo con el grupo vacío, para que ningún miembro
+        activo confirme después un offset que pise la nueva posición. Repetir
+        la misma petición deja el mismo estado.
+        """
+        return self._counted(self._reset_offsets, group_id, offsets)
+
+    def _reset_offsets(self, group_id, offsets) -> None:
+        self.expire()
+        self._check_group_id(group_id)
+        for topic, partition, next_offset in offsets:
+            validate_topic_name(topic)
+            if partition < 0:
+                raise InvalidRequest("partition", "no puede ser negativa")
+            if next_offset < 0:
+                raise InvalidRequest("next_offset", "no puede ser negativo")
+        group = self.groups.setdefault(group_id, Group(group_id))
+        if group.members:
+            raise GroupNotEmpty(group_id, len(group.members))
+        for topic, partition, next_offset in offsets:
+            group.offsets[(topic, partition)] = next_offset
+        self._event("offsets_reset", group, None, offsets=sorted(offsets))
+        self._save(group)
 
     def expire(self) -> None:
         """Expulsa a quien lleva una sesión sin latir o no deja a tiempo lo que debe."""
