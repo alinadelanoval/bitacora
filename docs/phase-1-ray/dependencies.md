@@ -212,9 +212,9 @@ experimento pone a prueba: `verified`, `violated` o `not_evaluable`.
 
 | Experimento | Escenario | Invariantes evaluados | Predicción | Resultado | Implicación para el diseño nativo |
 |---|---|---|---|---|---|
-| `EXP-001` | Línea base sin fallos (`F0`) | I-01, I-02, I-03 | Pendiente | Pendiente | — |
-| `EXP-002` | Pérdida del worker del líder, sin reintentos (`F15`) | I-02, I-03, I-04 | Pendiente | Pendiente | — |
-| `EXP-003` | Pérdida del worker del líder, con reintentos (`F15`) | I-02, I-03, I-08 | Pendiente | Pendiente | — |
+| `EXP-001` | Línea base sin fallos (`F0`) | I-01, I-02, I-03 | Todas `verified`; 500–800 ok/s con `acks=all` ([registro](../../evidence/phase-1-ray/EXP-001-baseline/record.md)) | Pendiente | — |
+| `EXP-002` | Pérdida del worker del líder, sin reintentos (`F15`) | I-02, I-03, I-04 | `verified`; 1–6 s sin escrituras `ok` ([registro](../../evidence/phase-1-ray/EXP-002-leader-worker-loss/record.md)) | Pendiente | — |
+| `EXP-003` | Pérdida del worker del líder, con reintentos (`F15`) | I-02, I-03, I-08 | I-08 `verified` casi siempre; duplicado posible si la réplica reiniciada vuelve a ser líder antes del reintento ([registro](../../evidence/phase-1-ray/EXP-003-leader-worker-loss-retries/record.md)) | Pendiente | — |
 
 ## 7. Limitaciones y riesgos conocidos
 
