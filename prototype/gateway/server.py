@@ -10,9 +10,13 @@ traduce cada operación en llamadas a los actores y cada error a su
   la está reiniciando) o responde que ya no es líder (Ray la reinició y volvió
   como seguidora), el gateway avisa al Controller para que la compruebe y
   responde `NOT_LEADER`: el cliente reintenta y, para entonces, el Controller
-  ha podido promover a otra. En `Produce` la respuesta es `REQUEST_TIMED_OUT`,
-  porque la líder pudo escribir el lote antes de morir: el resultado es
-  indeterminado (docs/contract.md, «Resultado indeterminado»).
+  ha podido promover a otra. En `Produce`, si la líder no responde, la
+  respuesta es `REQUEST_TIMED_OUT`, porque pudo escribir el lote antes de
+  morir: el resultado es indeterminado (docs/contract.md, «Resultado
+  indeterminado»). Si responde `NotLeader`, la respuesta es `NOT_LEADER`:
+  esa llamada no escribió nada. Esto solo es cierto porque las réplicas no
+  reintentan (`max_task_retries=0`); con reintentos, el `NotLeader` puede
+  venir de la repetición de un `append` que ya escribió (L-14, EXP-003).
 - Plazos: toda llamada a un actor tiene plazo. Vencido, la respuesta es
   `REQUEST_TIMED_OUT`; la llamada sigue en curso en el actor.
 - Espera en `Fetch`: el actor atiende una llamada cada vez y no puede quedarse
@@ -188,7 +192,9 @@ class Gateway:
         try:
             base = await wait(replica.append.remote(data, acks), request.timeout_ms / 1000)
         except NotLeader:
-            self.cluster.leader_unavailable(topic, partition)   # ver _on_replica
+            # Esta llamada no escribió: la réplica ya no era líder al ejecutarla.
+            # Solo vale con max_task_retries=0 (L-14); ver _on_replica.
+            self.cluster.leader_unavailable(topic, partition)
             raise
         except UNAVAILABLE:
             self.cluster.leader_unavailable(topic, partition)
