@@ -17,8 +17,13 @@ Variables de entorno:
   coordinador lo comunica en cada respuesta. Por defecto, 3000.
 - BITACORA_GROUP_REBALANCE_TIMEOUT_MS: tiempo que tiene un miembro para dejar
   las particiones que ya no le corresponden. Por defecto, 15000.
+- BITACORA_REPLICA_TASK_RETRIES: `max_task_retries` de las réplicas, las veces
+  que Ray repite una llamada interrumpida por la muerte del proceso. Por
+  defecto, 0: un append repetido puede duplicar un lote (L-02). Solo para
+  medirlo (EXP-003).
 
-Un plazo que no sea un entero positivo impide arrancar.
+Un plazo que no sea un entero positivo, o un número de reintentos negativo,
+impide arrancar.
 """
 
 import os
@@ -47,6 +52,7 @@ class Config:
     group_session_timeout: float = DEFAULT_GROUP_SESSION_TIMEOUT_MS / 1000
     group_heartbeat_interval: float = DEFAULT_GROUP_HEARTBEAT_INTERVAL_MS / 1000
     group_rebalance_timeout: float = DEFAULT_GROUP_REBALANCE_TIMEOUT_MS / 1000
+    replica_task_retries: int = 0
 
 
 def load() -> Config:
@@ -63,6 +69,7 @@ def load() -> Config:
             "BITACORA_GROUP_HEARTBEAT_INTERVAL_MS", DEFAULT_GROUP_HEARTBEAT_INTERVAL_MS) / 1000,
         group_rebalance_timeout=_positive_ms(
             "BITACORA_GROUP_REBALANCE_TIMEOUT_MS", DEFAULT_GROUP_REBALANCE_TIMEOUT_MS) / 1000,
+        replica_task_retries=_non_negative_int("BITACORA_REPLICA_TASK_RETRIES", 0),
     )
 
 
@@ -81,4 +88,16 @@ def _positive_ms(variable: str, default: int) -> int:
         raise ValueError(f"{variable} debe ser un entero: {raw!r}") from None
     if value <= 0:
         raise ValueError(f"{variable} debe ser positivo: {value}")
+    return value
+
+
+def _non_negative_int(variable: str, default: int) -> int:
+    """Lee un entero mayor o igual que cero; cualquier otra cosa impide arrancar."""
+    raw = os.environ.get(variable, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{variable} debe ser un entero: {raw!r}") from None
+    if value < 0:
+        raise ValueError(f"{variable} no puede ser negativo: {value}")
     return value

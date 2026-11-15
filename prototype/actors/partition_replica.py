@@ -484,5 +484,6 @@ class PartitionReplica:
 
 # El actor: una llamada cada vez, sin CPU reservada (solo espera E/S), y
 # reiniciado por Ray cada vez que su proceso muere. max_task_retries=0: una
-# llamada interrumpida no se repite, para no duplicar lotes.
+# llamada interrumpida no se repite, para no duplicar lotes. El Controller lo
+# sustituye por BITACORA_REPLICA_TASK_RETRIES solo para medir ese efecto (EXP-003).
 PartitionReplicaActor = ray.remote(num_cpus=0, max_restarts=-1, max_task_retries=0)(PartitionReplica)

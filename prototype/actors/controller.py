@@ -262,8 +262,10 @@ class Controller:
         # detached: la réplica sigue viva cuando termina el programa que pidió
         # crear el tema. get_if_exists: si ya existe (por ejemplo, tras un
         # reinicio del Controller), se reutiliza en vez de fallar.
+        # max_task_retries es 0 salvo para medir sus efectos (EXP-003).
         return PartitionReplicaActor.options(
             name=replica_actor_name(topic, partition, node),
+            max_task_retries=self._config.replica_task_retries,
             namespace=NAMESPACE,
             lifetime="detached",
             get_if_exists=True,
