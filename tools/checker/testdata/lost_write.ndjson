@@ -1,0 +1,4 @@
+{"op":"produce","ts":"2026-11-15T08:00:00.000Z","topic":"w5","partition":0,"id":"w-000001","acks":"all","result":"ok","offset":0}
+{"op":"produce","ts":"2026-11-15T08:00:00.010Z","topic":"w5","partition":0,"id":"w-000002","acks":"all","result":"ok","offset":1}
+{"op":"read","ts":"2026-11-15T08:00:05.000Z","topic":"w5","partition":0,"reader":"final","offset":0,"value":"w-000001"}
+{"op":"final_read_done","ts":"2026-11-15T08:00:05.100Z","topic":"w5","partition":0,"start_offset":0,"high_watermark":1}
