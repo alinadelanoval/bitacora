@@ -55,17 +55,19 @@ implementación del perfil básico; nunca como superadas.
 
 | Operación | Perfil | `prototype/` (básico) | `bitacorad` (completo) | Caso en `contracttest/` |
 |---|---|---|---|---|
-| `Produce` | Básico; deduplicación y mínimo de réplicas: completo | pendiente | pendiente | pendiente |
-| `Fetch` | Básico | pendiente | pendiente | pendiente |
-| `ListOffsets` | Básico | pendiente | pendiente | pendiente |
-| `Heartbeat` | Básico | pendiente | pendiente | pendiente |
-| `CommitOffsets`, `FetchCommittedOffsets` | Básico | pendiente | pendiente | pendiente |
-| `GetMetadata`, `CreateTopic` | Básico; épocas e ISR: completo | pendiente | pendiente | pendiente |
-| `InitProducerId` | Completo | `UNIMPLEMENTED` | pendiente | pendiente |
-| `ResetGroupOffsets` | Básico | pendiente | pendiente | pendiente |
+| `Produce` | Básico; deduplicación y mínimo de réplicas: completo | básico: superada; completo: no aplica | pendiente | 1, 6 y `ACKS_NONE` |
+| `Fetch` | Básico | superada | pendiente | 1, 2, 6 |
+| `ListOffsets` | Básico | superada | pendiente | 3 |
+| `Heartbeat` | Básico | superada | pendiente | 4, 5 |
+| `CommitOffsets`, `FetchCommittedOffsets` | Básico | superada | pendiente | 4, 5 |
+| `GetMetadata`, `CreateTopic` | Básico; épocas e ISR: completo | básico: superada; completo: no aplica | pendiente | `CreateTopic` y `GetMetadata` |
+| `InitProducerId` | Completo | `UNIMPLEMENTED`, comprobado | pendiente | `InitProducerId` en el perfil básico |
+| `ResetGroupOffsets` | Básico | superada | pendiente | 3 (reprocesamiento) |
 
 «Pendiente» indica que la regla todavía no se ha comprobado, no que sea
-opcional.
+opcional. Los números son los de la tabla «Conformidad»; la prueba de cada uno
+está en [`contracttest/README.md`](../contracttest/README.md). Estado del
+prototipo: `make contract` del 15/11/2026 (13 pruebas, todas superadas).
 
 ## Operaciones
 
@@ -78,7 +80,7 @@ implementadas.
 |---|---|---|---|---|---|
 | `Produce` | Tema y partición existentes; `partition` presente; `acks` especificado; `timeout_ms > 0`; lote válido | Offset del primer registro del lote; `-1` con `ACKS_NONE` | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `CORRUPT_MESSAGE`, `NOT_LEADER`, `REQUEST_TIMED_OUT`; perfil completo: `NOT_ENOUGH_REPLICAS`, `FENCED_LEADER_EPOCH`, `OUT_OF_ORDER_SEQUENCE`, `DUPLICATE_SEQUENCE` | Con identidad de productor (perfil completo), sin duplicar. Sin identidad, puede duplicar | Cuando el high watermark cubre el lote |
 | `Fetch` | Tema y partición existentes; `partition` presente; `max_bytes > 0` | Lotes desde el que contiene `offset`, por debajo del high watermark | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `OFFSET_OUT_OF_RANGE`, `NOT_LEADER` | Sí | — |
-| `ListOffsets` | Partición existente; posición especificada | Primer offset disponible, high watermark o primer offset con timestamp igual o posterior al pedido; `-1` si no existe | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST` | Sí | — |
+| `ListOffsets` | Partición existente; posición especificada | Primer offset disponible, high watermark o primer offset con timestamp igual o posterior al pedido; `-1` si no existe | `UNKNOWN_TOPIC_OR_PARTITION`, `INVALID_REQUEST`, `NOT_LEADER` | Sí | — |
 | `Heartbeat` | `group_id` y `member_id` válidos; `member_epoch ≥ -1`; al entrar, al menos un tema válido | Época del miembro, intervalo de latido, asignación utilizable y pendiente, época del grupo | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION`, `INVALID_REQUEST` | Sí, con el mismo `member_id` | En la asignación del miembro |
 | `CommitOffsets` | Miembro y época de miembro vigentes; particiones asignadas al miembro | Por partición, el mayor entre el offset confirmado y el pedido | `UNKNOWN_MEMBER`, `ILLEGAL_GENERATION`, `INVALID_REQUEST` | Sí | En `FetchCommittedOffsets` |
 | `FetchCommittedOffsets` | — | Offset confirmado por partición; las particiones sin commit no aparecen | `INVALID_REQUEST` | Sí | — |

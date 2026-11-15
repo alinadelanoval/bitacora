@@ -18,13 +18,37 @@ prototype/
 │   ├── partition_replica.py   Réplica de una partición: log, archivo propio y replicación
 │   ├── controller.py          Réplicas en anillo, papeles, ISR y promoción del líder
 │   └── group_coordinator.py   Grupos de consumidores: membresía, reparto y offsets
-├── gateway/                   Servicio gRPC Python
+├── gateway/
+│   ├── server.py              El contrato bitacora.v1 sobre los actores
+│   └── __main__.py            Arranque: python -m prototype.gateway
 └── tests/                     Pruebas locales del prototipo
 ```
 
 `errors.py`, `batch.py`, `names.py` y `range_strategy.py` no dependen de Ray. Las réplicas y el Controller son
 actores `detached` con nombre, en el namespace `bitacora`; Ray los reinicia si
 su proceso muere, y cada uno reconstruye su estado desde sus archivos.
+
+## Gateway
+
+`python -m prototype.gateway --listen 127.0.0.1:9091` arranca un nodo Ray
+local con los recursos `node:n1..n3` (o se une a uno existente con
+`--ray-address`) y atiende `Log`, `Groups` y `Admin`. Necesita los stubs de
+`make proto` en `gen/python`.
+
+- Cada error del dominio llega con su `ErrorCode` en el campo `error` de la
+  respuesta. Si la líder no responde, o responde que ya no es líder, el gateway
+  avisa al `Controller` y responde `NOT_LEADER`; en `Produce`,
+  `REQUEST_TIMED_OUT`, porque el lote pudo escribirse.
+- `Fetch` espera hasta `max_wait_ms` repitiendo la lectura cada 50 ms.
+- `ListOffsets` busca por marca de tiempo recorriendo los registros visibles.
+- `CreateTopic` reconoce los reintentos por `request_id`: otro `request_id`
+  con el mismo nombre de tema es `TOPIC_ALREADY_EXISTS`.
+- `ResetGroupOffsets` solo con el grupo vacío; fija la posición aunque
+  retroceda.
+- `InitProducerId` responde `UNIMPLEMENTED`: el prototipo es del perfil básico.
+
+`make contract` arranca el gateway y ejecuta contra él la suite de
+`contracttest/`.
 
 ## Replicación
 
@@ -78,8 +102,8 @@ Cada coordinador de grupos añade a `group-events-{fragmento}.ndjson`, después
 de guardar el grupo, una línea por transición: `coordinator_started`,
 `member_joined`, `member_rejoined`, `subscription_changed`,
 `revocation_requested`, `partitions_released`, `member_reconciled`,
-`member_left` y `member_expelled` (con `reason`: `session_timeout` o
-`rebalance_timeout`). Todas las líneas llevan `ts` (UTC), `event`, y en las de
+`member_left`, `member_expelled` (con `reason`: `session_timeout` o
+`rebalance_timeout`) y `offsets_reset`. Todas las líneas llevan `ts` (UTC), `event`, y en las de
 grupo `group_id`, `group_epoch` y `member_id`. `metrics()` devuelve contadores
 en memoria (latidos, commits, expulsiones y rechazos por tipo de error) y la
 época y el tamaño de cada grupo; vuelven a cero si el proceso se reinicia.
