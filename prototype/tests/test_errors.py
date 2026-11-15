@@ -7,6 +7,7 @@ import pytest
 from prototype.errors import (
     BitacoraError,
     CorruptBatch,
+    GroupNotEmpty,
     IllegalGeneration,
     InvalidBatch,
     InvalidRequest,
@@ -34,6 +35,7 @@ ALL_ERRORS = [
     (InvalidRequest("group_id", "contiene «/»"), 18),
     (IllegalGeneration("facturacion", "c1", "época 1, vigente 2"), 7),
     (UnknownMember("facturacion", "c1"), 8),
+    (GroupNotEmpty("facturacion", 2), 15),
 ]
 
 

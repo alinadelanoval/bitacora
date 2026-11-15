@@ -25,7 +25,7 @@ from prototype.actors.group_coordinator import (
     shard_for,
 )
 from prototype.config import NAMESPACE
-from prototype.errors import IllegalGeneration, InvalidRequest, UnknownMember
+from prototype.errors import GroupNotEmpty, IllegalGeneration, InvalidRequest, UnknownMember
 from prototype.tests.group_member import GroupMember
 
 PARTITIONS = {"pedidos": 3, "pagos": 2}
@@ -233,6 +233,31 @@ def test_leaving_is_idempotent_and_frees_the_partitions(coordinator):
     assert coordinator.heartbeat(GROUP, "c2", -1, [], [])["member_epoch"] == -1
     converge(coordinator, [c1])
     assert c1.owned == {P0, P1, P2}
+
+
+def test_reset_offsets_requires_an_empty_group_and_may_go_back(coordinator):
+    c1 = GroupMember(coordinator, GROUP, "c1", ["pedidos"])
+    c1.enter(); converge(coordinator, [c1])
+    coordinator.commit(GROUP, "c1", c1.epoch, [("pedidos", 0, 50)])
+    with pytest.raises(GroupNotEmpty):
+        coordinator.reset_offsets(GROUP, [("pedidos", 0, 10)])
+    assert coordinator.fetch(GROUP, [P0]) == {P0: 50}
+
+    c1.leave()
+    coordinator.reset_offsets(GROUP, [("pedidos", 0, 10), ("pedidos", 1, 0)])
+    coordinator.reset_offsets(GROUP, [("pedidos", 0, 10), ("pedidos", 1, 0)])   # repetirla no cambia nada
+    assert coordinator.fetch(GROUP, [P0, P1]) == {P0: 10, P1: 0}
+
+
+@pytest.mark.parametrize("offsets, field", [
+    ([("a/b", 0, 1)], "topic"),
+    ([("pedidos", -1, 1)], "partition"),
+    ([("pedidos", 0, -1)], "next_offset"),
+])
+def test_reset_offsets_rejects_invalid_positions(coordinator, offsets, field):
+    with pytest.raises(InvalidRequest) as caught:
+        coordinator.reset_offsets(GROUP, offsets)
+    assert caught.value.field == field
 
 
 # --- Validación ------------------------------------------------------------------------

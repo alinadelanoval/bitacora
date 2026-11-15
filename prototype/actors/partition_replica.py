@@ -206,6 +206,39 @@ class PartitionReplica:
             i += 1
         return result
 
+    def fetch(self, offset: int, max_bytes: int) -> dict:
+        """`read` más el HW con el que se leyó, en una sola llamada (para el gateway)."""
+        batches = self.read(offset, max_bytes)
+        return {"batches": batches, "high_watermark": self._hw}
+
+    def list_offset(self, position: str, timestamp: int = 0) -> int:
+        """Offset de una posición declarada, entre los registros visibles.
+
+        - "earliest": el primer offset disponible. El prototipo no borra lotes,
+          así que siempre es 0.
+        - "latest": el HW, la siguiente posición visible.
+        - "timestamp": el primer offset bajo el HW con marca de tiempo igual o
+          posterior a `timestamp`; -1 si no lo hay. Las marcas no tienen por qué
+          crecer con el offset, así que se recorren los registros en orden.
+        """
+        self._require_leader()
+        self._review_pending()
+        if position == "earliest":
+            return 0
+        if position == "latest":
+            return self._hw
+        if position != "timestamp":
+            raise ValueError(f"posición no admitida: {position!r}")
+        for stored in self._batches:
+            if stored.base_offset >= self._hw:
+                break
+            if batch.parse_header(stored.data).max_timestamp < timestamp:
+                continue                            # ningún registro del lote llega
+            for record in batch.records(stored.data):
+                if record.offset < self._hw and record.timestamp >= timestamp:
+                    return record.offset
+        return -1
+
     # --- Replicación: lado de la líder ------------------------------------------
 
     def _handle(self, node: str):

@@ -38,11 +38,11 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --require-hashes -r requirements.lock
 
-      - name: Run verification
+      - name: Run verification (generates Protobuf code first)
         run: make verify
 
-      - name: Validate and generate Protobuf code
-        run: make proto
+      - name: Run contract tests against the Ray prototype
+        run: make contract
 
       - name: Start three local processes
         run: make cluster

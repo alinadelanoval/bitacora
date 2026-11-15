@@ -2,7 +2,7 @@ GO ?= go
 PYTHON ?= python3
 BUF ?= buf
 
-.PHONY: all build vet test race python-test verify buf-install proto cluster stop clean
+.PHONY: all build vet test race python-test verify contract buf-install proto cluster stop clean
 
 all: verify
 
@@ -21,7 +21,12 @@ race:
 python-test:
 	$(PYTHON) -m pytest prototype/
 
-verify: build vet test race python-test
+# El cliente, las pruebas de contrato y el gateway usan los stubs generados.
+verify: proto build vet test race python-test
+
+# Pruebas públicas de contrato contra el gateway del prototipo Ray.
+contract: proto
+	$(PYTHON) scripts/test/contract_ray.py
 
 buf-install:
 	$(GO) install github.com/bufbuild/buf/cmd/buf@v1.75.0

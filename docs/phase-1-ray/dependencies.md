@@ -66,9 +66,9 @@ flowchart LR
     prod --> gw
     cons --> gw
     verif --> gw
-    gw -->|"Produce · Fetch"| lead
-    gw -->|"Metadatos · CreateTopic"| ctl
-    gw -->|"Join · Heartbeat · Commit"| gc
+    gw -->|"Produce · Fetch · ListOffsets"| lead
+    gw -->|"Metadatos · CreateTopic · aviso de líder caído"| ctl
+    gw -->|"Heartbeat · Commit · Reset"| gc
     ctl -->|"Asigna líder y réplicas"| parts
     lead -->|"replicate (push)"| f1
     lead -->|"replicate (push)"| f2
@@ -85,7 +85,7 @@ flowchart LR
 
 | Componente | Responsabilidad | Estado que posee | Capacidad de Ray de la que depende |
 |---|---|---|---|
-| Gateway gRPC | Implementa `Log`, `Groups` y `Admin`; localiza los actores y traduce errores del runtime (`RayActorError`, `GetTimeoutError`) a `ErrorCode` | Ninguno | Localización de actores por nombre; llamadas remotas |
+| Gateway gRPC | Implementa `Log`, `Groups` y `Admin`; localiza los actores, traduce los errores del dominio y los del runtime (`RayActorError`, actor no disponible, plazo vencido) a `ErrorCode`; avisa al `Controller` cuando la líder no responde o ya no es líder; espera en `Fetch` repitiendo la lectura | Caché en memoria de los metadatos de cada tema, que se descarta ante `NOT_LEADER` o un actor que no responde | Localización de actores por nombre; llamadas remotas con futuros |
 | `Controller` | Crea temas y reparte réplicas entre nodos lógicos; mantiene líder y conjunto sincronizado por partición; promueve una réplica si el líder falla | Metadatos de temas y particiones | Actor con nombre y ciclo de vida independiente del cliente; reinicio de actores |
 | `PartitionReplica` | Añade y lee registros con offsets contiguos; persiste en su archivo; el líder replica a las seguidoras según `acks` | Log de una réplica | Ejecución secuencial de los métodos del actor; ubicación por recursos lógicos |
 | `GroupCoordinator` | Tres instancias; cada grupo va a la `crc32(group_id) % 3`. Gestiona entradas, latidos y salidas; reconcilia la asignación de cada miembro con el reparto `range`; valida commits con la época del miembro | Por grupo: época, miembros, asignación actual y offsets | Actor con nombre; ejecución secuencial de sus métodos; un hilo propio solo encola revisiones de plazos |
@@ -231,3 +231,5 @@ experimento pone a prueba: `verified`, `violated` o `not_evaluable`.
 | L-09 | Los coordinadores de grupo comparten la carpeta de datos | Solo funciona con todos los nodos lógicos en una máquina | Aceptado en el prototipo; la versión nativa replica el estado |
 | L-10 | El número de fragmentos de grupo es fijo | Cambiarlo movería los grupos de coordinador | Fijarlo antes del despliegue |
 | L-11 | La expulsión por plazo vencido puede retrasarse hasta un segundo | Un miembro caído conserva sus particiones hasta el siguiente tic | Aceptado: es pequeño frente a la sesión de 10 s |
+| L-12 | `Fetch` espera repitiendo la lectura cada 50 ms en el gateway: el actor de la réplica no puede quedarse esperando sin bloquear su partición | Latencia extra de hasta 50 ms al llegar datos y una llamada a la líder por intervalo y consumidor en espera | Aceptado en el prototipo; la versión nativa avisa a los lectores cuando avanza el HW |
+| L-13 | El gateway es un único proceso y el único punto de entrada | Si cae, ningún cliente llega al clúster aunque los actores sigan vivos | Aceptado en el prototipo; en la versión nativa cada nodo atiende el contrato |

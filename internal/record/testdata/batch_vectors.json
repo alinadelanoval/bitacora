@@ -1,0 +1,69 @@
+[
+  {
+    "name": "un registro con clave",
+    "producer": null,
+    "records": [
+      {
+        "key": "pedido-812",
+        "value": "{\"total\":40}",
+        "timestamp_ms": 1794153600000
+      }
+    ],
+    "batch": "00000000000000000000004effffffff02d61d235a000000000000000001a1bbe35400000001a1bbe35400ffffffffffffffffffffffffffff00000001380000001470656469646f2d383132187b22746f74616c223a34307d00"
+  },
+  {
+    "name": "tres registros: sin clave, sin valor y marcas desordenadas",
+    "producer": null,
+    "records": [
+      {
+        "key": "a",
+        "value": "uno",
+        "timestamp_ms": 1794153600500
+      },
+      {
+        "key": null,
+        "value": "dos",
+        "timestamp_ms": 1794153600000
+      },
+      {
+        "key": "c",
+        "value": null,
+        "timestamp_ms": 1794153601234
+      }
+    ],
+    "batch": "000000000000000000000050ffffffff025f8a7d3b000000000002000001a1bbe355f4000001a1bbe358d2ffffffffffffffffffffffffffff0000000314000000026106756e6f001400e707020106646f73001000bc0b0402630100"
+  },
+  {
+    "name": "con identidad de productor",
+    "producer": {
+      "id": 7,
+      "epoch": 0,
+      "base_sequence": 42
+    },
+    "records": [
+      {
+        "key": "k",
+        "value": "v1",
+        "timestamp_ms": 1794153600000
+      },
+      {
+        "key": "k",
+        "value": "v2",
+        "timestamp_ms": 1794153600001
+      }
+    ],
+    "batch": "000000000000000000000045ffffffff02a9c63537000000000001000001a1bbe35400000001a1bbe35401000000000000000700000000002a0000000212000000026b0476310012000202026b04763200"
+  },
+  {
+    "name": "valor de 300 bytes: longitudes de dos bytes en varint",
+    "producer": null,
+    "records": [
+      {
+        "key": null,
+        "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "timestamp_ms": 1794153600000
+      }
+    ],
+    "batch": "000000000000000000000166ffffffff027775b27b000000000000000001a1bbe35400000001a1bbe35400ffffffffffffffffffffffffffff00000001e60400000001d80478787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787800"
+  }
+]

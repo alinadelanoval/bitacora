@@ -15,7 +15,7 @@ import ray
 from prototype import batch
 from prototype.actors.partition_replica import PartitionReplica, PartitionReplicaActor, replica_file_name
 from prototype.errors import CorruptBatch, InvalidBatch, OffsetOutOfRange, StorageFailure
-from prototype.tests.test_batch import make_batch
+from prototype.tests.test_batch import BASE_TS, make_batch
 
 # Tres lotes de 2, 3 y 4 registros: offsets 0–1, 2–4 y 5–8.
 LOTES = [make_batch([b"a", b"b"]), make_batch([b"c", b"d", b"e"]), make_batch([b"f", b"g", b"h", b"i"])]
@@ -86,6 +86,29 @@ def test_read_at_and_beyond_the_log_end(config):
 
 
 # --- Recuperación ----------------------------------------------------------------
+
+def test_fetch_returns_the_batches_and_the_high_watermark(config):
+    replica = new_replica(config)
+    fill(replica)
+    result = replica.fetch(2, 10_000)
+    assert result["batches"] == replica.read(2, 10_000)
+    assert result["high_watermark"] == 9
+
+
+def test_list_offset_by_position(config):
+    replica = new_replica(config)
+    assert replica.list_offset("earliest") == 0
+    assert replica.list_offset("latest") == 0
+    fill(replica)
+    assert replica.list_offset("earliest") == 0
+    assert replica.list_offset("latest") == 9
+    # make_batch numera las marcas desde BASE_TS en cada lote: no crecen con el
+    # offset. Offsets 0–1: +0, +1; 2–4: +0, +1, +2; 5–8: +0 … +3.
+    assert replica.list_offset("timestamp", BASE_TS) == 0
+    assert replica.list_offset("timestamp", BASE_TS + 2) == 4
+    assert replica.list_offset("timestamp", BASE_TS + 3) == 8
+    assert replica.list_offset("timestamp", BASE_TS + 4) == -1
+
 
 def test_restart_rebuilds_the_log_from_the_file(config):
     replica = new_replica(config)
