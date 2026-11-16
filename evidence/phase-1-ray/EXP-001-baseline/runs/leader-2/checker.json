@@ -1,0 +1,41 @@
+{
+  "history": "evidence/local/official/EXP-001/leader-2/history.ndjson",
+  "entries": 120270,
+  "properties": [
+    {
+      "id": "I-01",
+      "name": "Append-only",
+      "status": "verified",
+      "detail": "14000 offsets releídos por el mismo lector",
+      "anomalies": []
+    },
+    {
+      "id": "I-02",
+      "name": "Orden por partición",
+      "status": "verified",
+      "detail": "particiones con lectura final completa: 1",
+      "anomalies": []
+    },
+    {
+      "id": "I-03",
+      "name": "Durabilidad declarada",
+      "status": "not_evaluable",
+      "detail": "ninguna escritura confirmada con acks=all; acks=leader puede perderse y una escritura indeterminada no obliga",
+      "anomalies": []
+    },
+    {
+      "id": "I-04",
+      "name": "Historia única bajo fallo y partición",
+      "status": "not_evaluable",
+      "detail": "ninguna escritura confirmada con acks=all",
+      "anomalies": []
+    },
+    {
+      "id": "I-08",
+      "name": "Reintento seguro",
+      "status": "verified",
+      "detail": "particiones con lectura final completa: 1; cada id se envía una sola vez",
+      "anomalies": []
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "workload": {
+    "name": "W5",
+    "description": "Escritura intensiva: un tema de 1 partición con RF=3, un registro por lote, 4 escritores sin reintentos durante 30 s; un lector probe lee cada segundo lo nuevo y vuelve a leer los 500 offsets anteriores.",
+    "topic": "w5",
+    "partitions": 1,
+    "replication_factor": 3,
+    "acks": "leader",
+    "concurrency": 4,
+    "duration_s": 30,
+    "max_writes": 0,
+    "timeout_ms": 5000,
+    "probe_interval_ms": 1000,
+    "probe_window": 500
+  },
+  "endpoint": "127.0.0.1:41791",
+  "commit": "ad27772",
+  "started": "2026-11-15T23:33:26.456596379Z",
+  "duration_s": 30.002712295,
+  "writes": {
+    "ok": 35813
+  },
+  "errors": {},
+  "throughput_ok_per_s": 1193.6587481781871,
+  "latency_ok": {
+    "count": 35813,
+    "p50_ms": 3.162,
+    "p95_ms": 4.35,
+    "p99_ms": 5.994,
+    "max_ms": 33.671
+  },
+  "probe_passes": 29,
+  "probe_errors": 0,
+  "final_read": [
+    {
+      "partition": 0,
+      "complete": true,
+      "start_offset": 0,
+      "high_watermark": 35813,
+      "records": 35813
+    }
+  ]
+}

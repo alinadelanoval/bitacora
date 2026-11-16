@@ -9,13 +9,14 @@ from pathlib import Path
 import pytest
 import ray
 
+from prototype.actors import controller as controller_module
 from prototype.actors.controller import (
     METADATA_FILE,
     get_or_create_controller,
     replica_actor_name,
     ring_assignment,
 )
-from prototype.config import NAMESPACE
+from prototype.config import NAMESPACE, Config
 from prototype.errors import (
     InvalidReplicationFactor,
     InvalidRequest,
@@ -159,3 +160,24 @@ def test_replicas_survive_the_program_that_created_them(ray_address, config, top
     leader = ray.get_actor(replica_actor_name(topic, 0, "n1"), namespace=NAMESPACE)
     assert ray.get(leader.log_end_offset.remote()) == 2
     assert len(ray.get(leader.read.remote(0, 10_000))) == 1
+
+
+@pytest.mark.parametrize("retries", [0, 3])
+def test_replicas_are_created_with_the_configured_task_retries(monkeypatch, tmp_path, retries):
+    # Sin Ray: se sustituye el actor por uno que registra sus opciones.
+    seen = {}
+
+    class FakeActor:
+        @staticmethod
+        def options(**kwargs):
+            seen.update(kwargs)
+            return FakeActor
+
+        @staticmethod
+        def remote(*args):
+            return "handle"
+
+    monkeypatch.setattr(controller_module, "PartitionReplicaActor", FakeActor)
+    ctl = controller_module.Controller(Config(data_dir=tmp_path, replica_task_retries=retries))
+    assert ctl._start_replica("t", 0, "n1") == "handle"
+    assert seen["max_task_retries"] == retries

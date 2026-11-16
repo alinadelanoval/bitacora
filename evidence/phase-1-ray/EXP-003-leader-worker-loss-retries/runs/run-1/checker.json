@@ -1,0 +1,70 @@
+{
+  "history": "evidence/local/official/EXP-003/run-1/history.ndjson",
+  "entries": 74898,
+  "properties": [
+    {
+      "id": "I-01",
+      "name": "Append-only",
+      "status": "verified",
+      "detail": "13500 offsets releídos por el mismo lector",
+      "anomalies": []
+    },
+    {
+      "id": "I-02",
+      "name": "Orden por partición",
+      "status": "violated",
+      "detail": "particiones con lectura final completa: 1",
+      "anomalies": [
+        {
+          "kind": "offset_mismatch",
+          "topic": "w5",
+          "partition": 0,
+          "offset": 7043,
+          "ids": [
+            "w-0007040"
+          ],
+          "lines": [
+            17515,
+            61227
+          ],
+          "detail": "Produce devolvió el offset 7043 y el registro se lee en el 7039"
+        }
+      ]
+    },
+    {
+      "id": "I-03",
+      "name": "Durabilidad declarada",
+      "status": "verified",
+      "detail": "20709 escrituras confirmadas con acks=all comprobadas",
+      "anomalies": []
+    },
+    {
+      "id": "I-04",
+      "name": "Historia única bajo fallo y partición",
+      "status": "verified",
+      "detail": "20709 escrituras confirmadas con acks=all",
+      "anomalies": []
+    },
+    {
+      "id": "I-08",
+      "name": "Reintento seguro",
+      "status": "violated",
+      "detail": "particiones con lectura final completa: 1; cada id se envía una sola vez",
+      "anomalies": [
+        {
+          "kind": "duplicate",
+          "topic": "w5",
+          "partition": 0,
+          "ids": [
+            "w-0007040"
+          ],
+          "lines": [
+            61227,
+            61231
+          ],
+          "detail": "el mismo id aparece en los offsets 7039, 7043"
+        }
+      ]
+    }
+  ]
+}

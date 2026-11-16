@@ -1,0 +1,39 @@
+{
+  "injected": true,
+  "scenario": "F1/F15",
+  "killed_at": "2026-11-15T23:35:54.504Z",
+  "old_leader": "n1",
+  "pid": 56437,
+  "ok_writes_before_kill": 6914,
+  "leader_change": {
+    "ts": "2026-11-15T23:35:56.394Z",
+    "event": "leader_change",
+    "topic": "w5",
+    "partition": 0,
+    "old_leader": "n1",
+    "leader": "n2",
+    "isr": [
+      "n1",
+      "n2",
+      "n3"
+    ],
+    "leos": {
+      "n1": 6915,
+      "n2": 6915,
+      "n3": 6915
+    }
+  },
+  "max_ok_gap_s": 1.933,
+  "max_ok_gap_between": [
+    "w-0006914",
+    "w-0006919"
+  ],
+  "max_ok_gap_at_s": 9.809,
+  "unavailable_s": 1.933,
+  "not_ok_inside_gap": [
+    "w-0006916",
+    "w-0006917",
+    "w-0006918",
+    "w-0006915"
+  ]
+}

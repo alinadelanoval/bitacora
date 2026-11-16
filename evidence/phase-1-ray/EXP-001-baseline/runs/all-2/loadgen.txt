@@ -1,0 +1,5 @@
+carga W5 contra 127.0.0.1:46489 (acks=all, 4 escritores, commit ad27772)
+escrituras: ok=21514 fail=0 indeterminate=0 en 30.0 s; 717.0 ok/s
+latencia ok (ms): p50=5.34 p95=6.63 p99=9.13 max=37.79
+probe: 29 pasadas, 1 errores
+lectura final p0: 21514 registros en [0, 21514)

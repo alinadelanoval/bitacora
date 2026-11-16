@@ -1,0 +1,56 @@
+{
+  "history": "evidence/local/official/EXP-003/run-5/history.ndjson",
+  "entries": 74227,
+  "properties": [
+    {
+      "id": "I-01",
+      "name": "Append-only",
+      "status": "verified",
+      "detail": "13500 offsets releídos por el mismo lector",
+      "anomalies": []
+    },
+    {
+      "id": "I-02",
+      "name": "Orden por partición",
+      "status": "verified",
+      "detail": "particiones con lectura final completa: 1",
+      "anomalies": []
+    },
+    {
+      "id": "I-03",
+      "name": "Durabilidad declarada",
+      "status": "verified",
+      "detail": "20471 escrituras confirmadas con acks=all comprobadas",
+      "anomalies": []
+    },
+    {
+      "id": "I-04",
+      "name": "Historia única bajo fallo y partición",
+      "status": "verified",
+      "detail": "20471 escrituras confirmadas con acks=all",
+      "anomalies": []
+    },
+    {
+      "id": "I-08",
+      "name": "Reintento seguro",
+      "status": "violated",
+      "detail": "particiones con lectura final completa: 1; cada id se envía una sola vez",
+      "anomalies": [
+        {
+          "kind": "rejected_write_present",
+          "topic": "w5",
+          "partition": 0,
+          "offset": 6955,
+          "ids": [
+            "w-0006956"
+          ],
+          "lines": [
+            17334,
+            60710
+          ],
+          "detail": "Produce respondió ERROR_CODE_NOT_LEADER y el registro está en el log"
+        }
+      ]
+    }
+  ]
+}

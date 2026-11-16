@@ -1,0 +1,8 @@
+historial: evidence/local/official/EXP-003/run-1/history.ndjson (74898 entradas)
+I-01  Append-only                            verified      13500 offsets releídos por el mismo lector
+I-02  Orden por partición                    violated      particiones con lectura final completa: 1
+      - offset_mismatch w5/0@7043 [w-0007040]: Produce devolvió el offset 7043 y el registro se lee en el 7039 (líneas 17515, 61227)
+I-03  Durabilidad declarada                  verified      20709 escrituras confirmadas con acks=all comprobadas
+I-04  Historia única bajo fallo y partición  verified      20709 escrituras confirmadas con acks=all
+I-08  Reintento seguro                       violated      particiones con lectura final completa: 1; cada id se envía una sola vez
+      - duplicate w5/0 [w-0007040]: el mismo id aparece en los offsets 7039, 7043 (líneas 61227, 61231)

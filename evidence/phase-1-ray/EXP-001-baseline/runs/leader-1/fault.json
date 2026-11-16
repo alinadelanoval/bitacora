@@ -1,0 +1,9 @@
+{
+  "injected": false,
+  "max_ok_gap_s": 0.027,
+  "max_ok_gap_between": [
+    "w-0025496",
+    "w-0025497"
+  ],
+  "max_ok_gap_at_s": 20.911
+}

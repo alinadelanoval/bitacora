@@ -1,0 +1,6 @@
+historial: evidence/local/official/EXP-002/leader-1/history.ndjson (124975 entradas)
+I-01  Append-only                            verified      19797 offsets releídos por el mismo lector
+I-02  Orden por partición                    verified      particiones con lectura final completa: 1
+I-03  Durabilidad declarada                  not_evaluable ninguna escritura confirmada con acks=all; acks=leader puede perderse y una escritura indeterminada no obliga
+I-04  Historia única bajo fallo y partición  not_evaluable ninguna escritura confirmada con acks=all
+I-08  Reintento seguro                       verified      particiones con lectura final completa: 1; cada id se envía una sola vez

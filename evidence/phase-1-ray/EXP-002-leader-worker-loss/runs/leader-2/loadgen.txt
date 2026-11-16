@@ -1,0 +1,6 @@
+carga W5 contra 127.0.0.1:45573 (acks=leader, 4 escritores, commit ad27772)
+escrituras: ok=34066 fail=0 indeterminate=4 en 30.0 s; 1135.4 ok/s
+latencia ok (ms): p50=3.12 p95=4.13 p99=5.80 max=27.42
+errores: {"ERROR_CODE_REQUEST_TIMED_OUT":4}
+probe: 28 pasadas, 1 errores
+lectura final p0: 34067 registros en [0, 34067)

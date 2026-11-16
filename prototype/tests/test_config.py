@@ -42,3 +42,17 @@ def test_invalid_group_timeout_prevents_starting(monkeypatch, variable, field, d
     monkeypatch.setenv(variable, "0")
     with pytest.raises(ValueError):
         config.load()
+
+
+def test_replica_task_retries_defaults_to_zero(monkeypatch):
+    monkeypatch.delenv("BITACORA_REPLICA_TASK_RETRIES", raising=False)
+    assert config.load().replica_task_retries == 0
+    monkeypatch.setenv("BITACORA_REPLICA_TASK_RETRIES", "3")
+    assert config.load().replica_task_retries == 3
+
+
+@pytest.mark.parametrize("value", ["-1", "abc", "1.5"])
+def test_invalid_replica_task_retries_prevents_starting(monkeypatch, value):
+    monkeypatch.setenv("BITACORA_REPLICA_TASK_RETRIES", value)
+    with pytest.raises(ValueError):
+        config.load()

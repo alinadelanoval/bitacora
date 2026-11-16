@@ -1,0 +1,6 @@
+carga W5 contra 127.0.0.1:38597 (acks=all, 4 escritores, commit ad27772)
+escrituras: ok=20339 fail=4 indeterminate=0 en 30.0 s; 677.9 ok/s
+latencia ok (ms): p50=5.46 p95=6.81 p99=9.19 max=33.27
+errores: {"ERROR_CODE_NOT_LEADER":4}
+probe: 28 pasadas, 1 errores
+lectura final p0: 20340 registros en [0, 20340)

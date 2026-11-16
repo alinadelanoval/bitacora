@@ -1,0 +1,6 @@
+historial: evidence/local/official/EXP-002/all-4/history.ndjson (67765 entradas)
+I-01  Append-only                            verified      13183 offsets releídos por el mismo lector
+I-02  Orden por partición                    verified      particiones con lectura final completa: 1
+I-03  Durabilidad declarada                  verified      18319 escrituras confirmadas con acks=all comprobadas
+I-04  Historia única bajo fallo y partición  verified      18319 escrituras confirmadas con acks=all
+I-08  Reintento seguro                       verified      particiones con lectura final completa: 1; cada id se envía una sola vez
