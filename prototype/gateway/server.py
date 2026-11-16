@@ -14,9 +14,12 @@ traduce cada operación en llamadas a los actores y cada error a su
   respuesta es `REQUEST_TIMED_OUT`, porque pudo escribir el lote antes de
   morir: el resultado es indeterminado (docs/contract.md, «Resultado
   indeterminado»). Si responde `NotLeader`, la respuesta es `NOT_LEADER`:
-  esa llamada no escribió nada. Esto solo es cierto porque las réplicas no
-  reintentan (`max_task_retries=0`); con reintentos, el `NotLeader` puede
-  venir de la repetición de un `append` que ya escribió (L-14, EXP-003).
+  esa llamada no escribió nada. Esto solo es cierto si las réplicas no
+  reintentan (`max_task_retries=0`, el valor del prototipo). Con reintentos,
+  el `NotLeader` puede venir de la repetición de un `append` que ya escribió
+  antes de morir la líder (L-14, EXP-003), así que la respuesta es
+  `REQUEST_TIMED_OUT`. Un lote repetido después de que la réplica vuelva a
+  ser líder no se puede detectar aquí: necesita identidad de productor.
 - Plazos: toda llamada a un actor tiene plazo. Vencido, la respuesta es
   `REQUEST_TIMED_OUT`; la llamada sigue en curso en el actor.
 - Espera en `Fetch`: el actor atiende una llamada cada vez y no puede quedarse
@@ -192,9 +195,14 @@ class Gateway:
         try:
             base = await wait(replica.append.remote(data, acks), request.timeout_ms / 1000)
         except NotLeader:
-            # Esta llamada no escribió: la réplica ya no era líder al ejecutarla.
-            # Solo vale con max_task_retries=0 (L-14); ver _on_replica.
-            self.cluster.leader_unavailable(topic, partition)
+            self.cluster.leader_unavailable(topic, partition)   # ver _on_replica
+            if self.cluster.config.replica_task_retries > 0:
+                # Ray pudo repetir un append que ya había escrito antes de que
+                # la líder muriera: el resultado es indeterminado (L-14).
+                raise RequestTimedOut(
+                    "la réplica ya no es líder y Ray pudo repetir una escritura que ya tuvo efecto") from None
+            # Sin reintentos, esta llamada no escribió: la réplica ya no era
+            # líder al ejecutarla.
             raise
         except UNAVAILABLE:
             self.cluster.leader_unavailable(topic, partition)

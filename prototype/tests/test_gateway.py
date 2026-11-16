@@ -11,7 +11,8 @@ import os
 import signal
 import struct
 import time
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 
 import grpc
 import pytest
@@ -35,18 +36,27 @@ class Stubs:
     detached_actors: list
 
 
-@pytest.fixture
-def api(config, topic, detached_actors):
+@contextmanager
+def running_gateway(config, topic, detached_actors):
+    """Gateway propio en un hilo, con su Controller y sus coordinadores."""
     controller = f"controller-{topic}"
     prefix = f"gc-{topic}"
     detached_actors.append(controller)
     detached_actors.extend(coordinator_name(s, prefix) for s in range(SHARDS))
     gateway = BackgroundGateway(Cluster(config, controller, prefix))
     channel = grpc.insecure_channel(gateway.target)
-    yield Stubs(pb_grpc.LogStub(channel), pb_grpc.GroupsStub(channel), pb_grpc.AdminStub(channel),
-                topic, detached_actors)
-    channel.close()
-    gateway.stop()
+    try:
+        yield Stubs(pb_grpc.LogStub(channel), pb_grpc.GroupsStub(channel), pb_grpc.AdminStub(channel),
+                    topic, detached_actors)
+    finally:
+        channel.close()
+        gateway.stop()
+
+
+@pytest.fixture
+def api(config, topic, detached_actors):
+    with running_gateway(config, topic, detached_actors) as stubs:
+        yield stubs
 
 
 def create(api: Stubs, partitions: int = 1, replication_factor: int = 3, request_id: str = "r1"):
@@ -239,3 +249,18 @@ def test_a_dead_leader_is_reported_and_the_client_continues_after_retrying(api):
     assert metadata.topics[0].partitions[0].leader_id != "n1"
     # Lo confirmado antes de la caída sigue ahí, con su offset.
     assert base_offsets(fetch(api, 0).record_batches)[0] == 0
+
+
+@pytest.mark.parametrize("retries, expected", [
+    (0, ERR.ERROR_CODE_NOT_LEADER),          # la llamada no escribió: rechazo
+    (3, ERR.ERROR_CODE_REQUEST_TIMED_OUT),   # pudo ser un reintento de Ray que ya escribió (L-14)
+])
+def test_produce_on_a_replica_that_is_no_longer_leader(config, topic, detached_actors, retries, expected):
+    with running_gateway(replace(config, replica_task_retries=retries), topic, detached_actors) as api:
+        create(api)
+        assert produce(api, make_batch([b"a"])).base_offset == 0
+        # La líder pasa a seguidora sin que el gateway lo sepa: su próxima
+        # escritura recibe NotLeader de la réplica.
+        leader = ray.get_actor(replica_actor_name(api.topic, 0, "n1"), namespace=NAMESPACE)
+        ray.get(leader.become_follower.remote())
+        assert produce(api, make_batch([b"b"])).error == expected
