@@ -1,0 +1,1 @@
+{"ts": "2026-11-15T23:40:32.162Z", "event": "leader_change", "topic": "w5", "partition": 0, "old_leader": "n1", "leader": "n2", "isr": ["n1", "n2", "n3"], "leos": {"n1": 6923, "n2": 6923, "n3": 6923}}

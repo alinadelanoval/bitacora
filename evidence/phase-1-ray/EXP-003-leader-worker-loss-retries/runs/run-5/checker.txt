@@ -1,0 +1,7 @@
+historial: evidence/local/official/EXP-003/run-5/history.ndjson (74227 entradas)
+I-01  Append-only                            verified      13500 offsets releídos por el mismo lector
+I-02  Orden por partición                    verified      particiones con lectura final completa: 1
+I-03  Durabilidad declarada                  verified      20471 escrituras confirmadas con acks=all comprobadas
+I-04  Historia única bajo fallo y partición  verified      20471 escrituras confirmadas con acks=all
+I-08  Reintento seguro                       violated      particiones con lectura final completa: 1; cada id se envía una sola vez
+      - rejected_write_present w5/0@6955 [w-0006956]: Produce respondió ERROR_CODE_NOT_LEADER y el registro está en el log (líneas 17334, 60710)
