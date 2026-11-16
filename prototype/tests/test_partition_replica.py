@@ -227,3 +227,25 @@ def test_errors_reach_the_caller_with_their_class(config, topic, detached_actors
     with pytest.raises(OffsetOutOfRange) as caught:
         ray.get(actor.read.remote(5, 100))
     assert (caught.value.code, caught.value.offset, caught.value.log_end_offset) == (4, 5, 0)
+
+
+# --- Control de carga ------------------------------------------------------------
+
+def test_the_actor_queues_every_pending_call_without_a_limit(config, topic, detached_actors):
+    """Mapa de dependencias, «Control de carga»: el prototipo no limita la cola.
+
+    Ray solo rechaza llamadas si el actor fija max_pending_calls (por defecto,
+    -1: sin límite), y el prototipo no lo fija. Se envían 1000 escrituras sin
+    esperar ninguna: todas se aceptan, ninguna se rechaza y se ejecutan de una
+    en una en el orden de llegada. Nada frena al cliente: la cola crece hasta
+    lo que admita la memoria.
+    """
+    assert "max_pending_calls" not in PartitionReplicaActor._default_options
+
+    name = f"{topic}-0-n1"
+    detached_actors.append(name)
+    actor = PartitionReplicaActor.options(name=name, lifetime="detached").remote(topic, 0, "n1", config)
+    ray.get(actor.become_leader.remote([], ["n1"], None))
+    n = 1000
+    refs = [actor.append.remote(make_batch([f"r{i}".encode()]), "1") for i in range(n)]
+    assert ray.get(refs) == list(range(n))
