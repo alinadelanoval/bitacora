@@ -1,0 +1,26 @@
+{
+  "topics": {
+    "w5": {
+      "assignment": {
+        "0": [
+          "n1",
+          "n2",
+          "n3"
+        ]
+      },
+      "isr": {
+        "0": [
+          "n1",
+          "n2",
+          "n3"
+        ]
+      },
+      "leaders": {
+        "0": "n2"
+      },
+      "partitions": 1,
+      "replication_factor": 3,
+      "request_id": "loadgen-w5"
+    }
+  }
+}

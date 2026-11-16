@@ -1,0 +1,35 @@
+started: '2026-11-15T23:36:51.777Z'
+commit: ad27772
+dirty: false
+command: leader_loss.py --out evidence/local/official/EXP-002/all-5 --acks all --kill-after
+  10
+workload:
+  name: W5
+  description: 'Escritura intensiva: un tema de 1 partición con RF=3, un registro
+    por lote, 4 escritores sin reintentos durante 30 s; un lector probe lee cada segundo
+    lo nuevo y vuelve a leer los 500 offsets anteriores.'
+  topic: w5
+  partitions: 1
+  replication_factor: 3
+  acks: all
+  concurrency: 4
+  duration_s: 30
+  max_writes: 0
+  timeout_ms: 5000
+  probe_interval_ms: 1000
+  probe_window: 500
+fault:
+  scenario: F1/F15
+  signal: SIGKILL
+  target: worker de la réplica líder
+  after_s: 10.0
+prototype:
+  replica_task_retries: 0
+  replication_timeout_ms: 2000
+  fsync_per_batch: false
+environment:
+  platform: Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.39
+  python: 3.12.3
+  ray: 2.59.0
+  go: go version go1.26.10 linux/amd64
+seed: null

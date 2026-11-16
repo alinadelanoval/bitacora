@@ -1,0 +1,41 @@
+{
+  "history": "evidence/local/official/EXP-002/all-3/history.ndjson",
+  "entries": 72547,
+  "properties": [
+    {
+      "id": "I-01",
+      "name": "Append-only",
+      "status": "verified",
+      "detail": "13197 offsets releídos por el mismo lector",
+      "anomalies": []
+    },
+    {
+      "id": "I-02",
+      "name": "Orden por partición",
+      "status": "verified",
+      "detail": "particiones con lectura final completa: 1",
+      "anomalies": []
+    },
+    {
+      "id": "I-03",
+      "name": "Durabilidad declarada",
+      "status": "verified",
+      "detail": "19908 escrituras confirmadas con acks=all comprobadas",
+      "anomalies": []
+    },
+    {
+      "id": "I-04",
+      "name": "Historia única bajo fallo y partición",
+      "status": "verified",
+      "detail": "19908 escrituras confirmadas con acks=all",
+      "anomalies": []
+    },
+    {
+      "id": "I-08",
+      "name": "Reintento seguro",
+      "status": "verified",
+      "detail": "particiones con lectura final completa: 1; cada id se envía una sola vez",
+      "anomalies": []
+    }
+  ]
+}
